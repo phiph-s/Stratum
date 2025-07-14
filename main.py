@@ -5,8 +5,7 @@ from lib.mesh_generator import (
     create_layered_polygons_parallel,
     render_polygons_to_pil_image,
     polygons_to_meshes_parallel,
-    image_coords_to_real_coords,
-    analyze_position
+    analyze_position_rgb
 )
 from PIL import Image
 import io
@@ -29,6 +28,7 @@ def main():
     size_input = None
     rendered_image_size = None  # Store rendered image dimensions
     filament_shades = None  # Store current shades
+    rendered_image = None  # Store the rendered PIL image for RGB analysis
 
     # Edit dialog components (defined once)
     with ui.dialog() as edit_dialog:
@@ -66,39 +66,143 @@ def main():
         edit_dialog.close()
 
     def show_position_info(analysis_result):
-        """Display detailed position analysis in a dialog"""
+        """Display detailed position analysis in a dialog with enhanced visualization"""
         position_info_content.clear()
         print(analysis_result)
         with position_info_content:
-            pos_x, pos_y = analysis_result['position_cm']
-            ui.markdown(f"**Position:** {pos_x:.2f} cm, {pos_y:.2f} cm")
+            # Handle RGB-based analysis result format
+            if 'position_px' in analysis_result:
+                # New RGB-based analysis
+                pos_x, pos_y = analysis_result['position_px']
+                ui.markdown(f"**Position:** {pos_x:.0f}, {pos_y:.0f} px")
+
+                if 'rgb_value' in analysis_result and analysis_result['rgb_value']:
+                    rgb = analysis_result['rgb_value']
+                    rgb_str = f"rgb({rgb[0]}, {rgb[1]}, {rgb[2]})"
+                    ui.markdown(f"**RGB Value:** {rgb_str}")
+
+                    # Color swatch for the actual RGB value
+                    with ui.row().classes('items-center gap-2'):
+                        ui.html(f'<div style="width: 20px; height: 20px; background-color: {rgb_str}; border: 1px solid #ccc; border-radius: 3px;"></div>')
+                        ui.label(f"Pixel color: {rgb_str}")
+
+                if 'error' in analysis_result:
+                    ui.markdown(f"**Error:** {analysis_result['error']}")
+
+            else:
+                # Old coordinate-based analysis (fallback)
+                pos_x, pos_y = analysis_result['position_cm']
+                ui.markdown(f"**Position:** {pos_x:.2f} cm, {pos_y:.2f} cm")
 
             if analysis_result['has_material']:
                 ui.markdown(f"**Total Layers:** {analysis_result['total_layers']}")
 
-                for layer_info in analysis_result['layers']:
-                    layer_idx = layer_info['layer_index']
-                    if layer_idx == 0:
-                        ui.markdown("**Base Layer**")
-                    else:
-                        ui.markdown(f"**Filament {layer_idx}:**")
+                # Find the topmost filament and show its real (unshaded) color
+                topmost_layer = None
+                topmost_filament_idx = -1
 
-                    for filament_info in layer_info['filaments']:
-                        color = filament_info['color']
-                        rgb_str = f"rgb({color[0]}, {color[1]}, {color[2]})"
+                layer_info = analysis_result['layer']
+                layer_idx = layer_info['layer_index']
+                if layer_idx > topmost_filament_idx:
+                    topmost_filament_idx = layer_idx
+                    topmost_layer = layer_info
 
-                        with ui.row().classes('items-center gap-2'):
-                            # Color swatch
-                            ui.html(f'<div style="width: 20px; height: 20px; background-color: {rgb_str}; border: 1px solid #ccc; border-radius: 3px;"></div>')
-                            ui.label(f"Shade {filament_info['shade_index'] + 1}: {rgb_str}")
+                # Show real color of topmost filament
+                if topmost_layer:  # Skip base layer
+                    real_color = filaments[topmost_filament_idx]['color']  # Convert to 0-based index
+                    real_rgb = tuple(int(real_color[i:i+2], 16) for i in (1,3,5))
+                    real_rgb_str = f"rgb({real_rgb[0]}, {real_rgb[1]}, {real_rgb[2]})"
+
+                    ui.markdown(f"**Topmost Filament #{topmost_filament_idx} Real Color:**")
+                    with ui.row().classes('items-center gap-2'):
+                        ui.html(f'<div style="width: 30px; height: 30px; background-color: {real_rgb_str}; border: 2px solid #333; border-radius: 5px;"></div>')
+                        ui.label(f"Unshaded color: {real_rgb_str}")
+
+                # Create matplotlib plot showing all shades underneath
+                if filament_shades:
+                    print (filament_shades)
+                    try:
+                        import numpy as np
+
+                        # Collect all shades that would be present at this position
+                        all_shades_present = []
+                        shade_labels = []
+
+                        layer_info = analysis_result['layer']
+                        layer_idx = layer_info['layer_index']
+
+                        # Get with index lower to current layer
+                        shade = layer_info['filaments'][0]['shade_index']
+                        for i in range(shade + 1):
+                            all_shades_present.append(filament_shades[layer_idx][i])
+                            shade_labels.append(f"Layer {layer_idx + 1} Shade {i + 1}")
+                        # add all shades from layers with lower index
+                        for i in reversed(range(layer_idx)):
+                            # add all shades from lower layers
+                            for j in reversed(range(len(filament_shades[i]))):
+                                all_shades_present.append(filament_shades[i][j])
+                                shade_labels.append(f"Layer {i + 1} Shade {j + 1}")
+
+
+                        if all_shades_present:
+                            # Create the plot using NiceGUI's matplotlib context manager
+                            plot_height = max(2, len(all_shades_present) * 0.3)
+                            with ui.matplotlib(figsize=(8, plot_height)).figure as fig:
+                                ax = fig.gca()
+
+                                # Create horizontal bars for each shade
+                                y_positions = np.arange(len(all_shades_present))
+                                colors_normalized = [(r/255, g/255, b/255) for r, g, b in all_shades_present]
+
+                                bars = ax.barh(y_positions, [1] * len(all_shades_present),
+                                             color=colors_normalized, edgecolor='black', linewidth=0.5)
+
+                                # Customize the plot
+                                ax.set_yticks(y_positions)
+                                ax.set_yticklabels(shade_labels)
+                                ax.set_xlabel('Shade Colors at This Position')
+                                ax.set_title('Layer Stack Visualization (Bottom to Top)', fontweight='bold')
+                                ax.set_xlim(0, 1)
+                                ax.set_xticks([])
+
+                                # Invert y-axis so bottom layers are at bottom
+                                ax.invert_yaxis()
+
+                                # Add RGB values as text on bars
+                                for i, (bar, rgb) in enumerate(zip(bars, all_shades_present)):
+                                    rgb_text = f"({rgb[0]}, {rgb[1]}, {rgb[2]})"
+                                    ax.text(0.5, i, rgb_text, ha='center', va='center',
+                                           fontweight='bold', color='white' if sum(rgb) < 384 else 'black')
+
+                                fig.tight_layout()
+
+                    except Exception as e:
+                        ui.markdown(f"**Error creating plot:** {str(e)}")
+
+                # Show detailed layer information (existing code)
+                layer_info = analysis_result['layer']
+                layer_idx = layer_info['layer_index']
+                if layer_idx == 0:
+                    ui.markdown("**Base Layer**")
+                else:
+                    ui.markdown(f"**Filament {layer_idx}:**")
+
+                for filament_info in layer_info['filaments']:
+                    color = filament_info['color']
+                    rgb_str = f"rgb({color[0]}, {color[1]}, {color[2]})"
+
+                    with ui.row().classes('items-center gap-2'):
+                        # Color swatch
+                        ui.html(f'<div style="width: 20px; height: 20px; background-color: {rgb_str}; border: 1px solid #ccc; border-radius: 3px;"></div>')
+                        ui.label(f"Shade {filament_info['shade_index'] + 1}: {rgb_str}")
             else:
                 ui.markdown("**No material at this position**")
 
         position_dialog.open()
 
     def handle_image_click(e):
-        """Handle clicks on the interactive image"""
-        if not polygons or not original_image or not rendered_image_size or not filament_shades:
+        """Handle clicks on the interactive image using simplified RGB analysis"""
+        if not rendered_image or not filament_shades:
             ui.notify('Generate the preview first', color='orange')
             return
 
@@ -107,21 +211,11 @@ def main():
         click_y = e.image_y
 
         try:
-            # Convert image coordinates to real coordinates
-            real_x_cm, real_y_cm = image_coords_to_real_coords(
+            # Use the new simplified RGB-based analysis
+            analysis = analyze_position_rgb(
                 click_x, click_y,
-                original_image.size,
-                rendered_image_size,
-                size_input.value,
-                polygons
-            )
-
-            # Analyze the position
-            analysis = analyze_position(
-                real_x_cm, real_y_cm,
-                polygons,
-                filament_shades,
-                size_input.value
+                rendered_image,
+                filament_shades
             )
 
             # Show the information
@@ -210,7 +304,7 @@ def main():
         upload_image.reset()
 
     async def on_redraw(image_component, progress_bar, spinner):
-        nonlocal segmented_image, polygons, original_image, rendered_image_size, filament_shades
+        nonlocal segmented_image, polygons, original_image, rendered_image_size, filament_shades, rendered_image
         if original_image is None or len(filaments) < 2:
             ui.notify('Load image and add at least two filaments', color='red')
             return
@@ -222,14 +316,14 @@ def main():
         covers = [f['cover'] for f in filaments]
 
         QUALITY_PRESETS = {
-            'Fast': {'min_area': 2, 'simplify_tol': 1.0},
-            'Medium': {'min_area': 1, 'simplify_tol': 0.5},
-            'Best':  {'min_area': 0.25, 'simplify_tol': 0.1}
+            'Fast': {'min_area': 2, 'simplify_tol': 1.0, 'marching_squares_level': 0.5},
+            'Medium': {'min_area': 0.5, 'simplify_tol': 0.5, 'marching_squares_level': 0.25},
+            'Best':  {'min_area': 0.1, 'simplify_tol': 0.01, 'marching_squares_level': 0.05}
         }
 
         print("q", QUALITY_PRESETS[quality_mode.value])
 
-        min_area, simplify_tol = QUALITY_PRESETS[quality_mode.value].values()
+        min_area, simplify_tol, marching_squares_level  = QUALITY_PRESETS[quality_mode.value].values()
 
         def compute():
             shades = generate_shades(colors, covers)
@@ -237,7 +331,7 @@ def main():
             polys = create_layered_polygons_parallel(
                 segmented, shades,
                 progress_cb=lambda v: setattr(progress_bar, 'value', v * 0.5),
-                min_area=min_area, simplify_tol=simplify_tol
+                min_area=min_area, simplify_tol=simplify_tol, marching_squares_level=marching_squares_level
             )
             img = render_polygons_to_pil_image(
                 polys, shades, segmented.size, max_size=size_input.value,
@@ -248,7 +342,8 @@ def main():
         loop = asyncio.get_running_loop()
         segmented_image, polygons, img, filament_shades = await loop.run_in_executor(None, compute)
 
-        # Store rendered image size for coordinate conversion
+        # Store rendered image and its size for RGB analysis
+        rendered_image = img
         rendered_image_size = img.size
 
         buf = io.BytesIO()

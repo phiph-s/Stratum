@@ -78,7 +78,7 @@ def extract_color_masks(img_arr, filament_shades):
 
 
 @timed
-def mask_to_polygons(mask, min_area=100, simplify_tol=1.0):
+def mask_to_polygons(mask, min_area=100, simplify_tol=1.0, marching_squares_level=0.5):
     """
     Converts a boolean mask to a list of Shapely polygons using marching squares.
     """
@@ -87,7 +87,7 @@ def mask_to_polygons(mask, min_area=100, simplify_tol=1.0):
     # Convert every *ring* returned by marching-squares into a LineString
     rings = [
         LineString([(p[1], p[0]) for p in c])  # shift because of the 1-pixel pad
-        for c in measure.find_contours(padded, 0.5)  # skimage marching squares
+        for c in measure.find_contours(padded, marching_squares_level)  # skimage marching squares
     ]
 
     if not rings:
@@ -199,10 +199,10 @@ def _generate_base_mesh(segmented_image, layer_height=0.2, base_layers=4,
 
 def process_mask(task):
     """Worker function for parallel polygon extraction."""
-    (fi, L), mask, h_px, min_area, simplify_tol = task
+    (fi, L), mask, h_px, min_area, simplify_tol, marching_squares_level = task
     if not mask.any():
         return (fi, L, [])
-    polys = mask_to_polygons(mask, min_area=min_area, simplify_tol=simplify_tol)
+    polys = mask_to_polygons(mask, min_area=min_area, simplify_tol=simplify_tol, marching_squares_level=marching_squares_level)
     flipped = flip_polygons_vertically(polys, h_px)
     return (fi, L, flipped)
 
@@ -213,7 +213,8 @@ def create_layered_polygons_parallel(
         shades,
         progress_cb=None,
         min_area=MIN_AREA,
-        simplify_tol=SIMPLIFY_TOLERANCE
+        simplify_tol=SIMPLIFY_TOLERANCE,
+        marching_squares_level= 0.5
 ):
     """
     Creates layered polygons from a segmented image in parallel.
@@ -239,7 +240,7 @@ def create_layered_polygons_parallel(
         cnt = counts_map[fi]
         for L in range(1, len(np.unique(cnt)) + 1):
             mask_L = cnt >= L
-            tasks.append(((fi, L), mask_L, h_px, min_area, simplify_tol))
+            tasks.append(((fi, L), mask_L, h_px, min_area, simplify_tol, marching_squares_level))
 
     if not tasks:
         if progress_cb: progress_cb(1.0)
@@ -350,12 +351,12 @@ def render_polygons_to_pil_image(
         filament_shades,
         image_size,
         max_size=10.0,  # Maximum dimension in cm
-        bg_color='transparent',
+        bg_color='white',  # Use solid background for pixel-perfect RGB
         font_color=(1, 1, 1),
         progress_cb=None,
 ) -> Image.Image:
     """
-    Renders layered polygons to a PIL Image using Matplotlib.
+    Renders layered polygons to a PIL Image using Matplotlib with pixel-perfect RGB values.
     Always renders the longest side to 1024 pixels without axes or labels.
 
     Args:
@@ -399,12 +400,9 @@ def render_polygons_to_pil_image(
     # Remove all axes, labels, and ticks
     ax.set_axis_off()
 
-    if bg_color == 'transparent':
-        fig.patch.set_alpha(0.0)
-        ax.patch.set_alpha(0.0)
-    else:
-        fig.patch.set_facecolor(bg_color)
-        ax.set_facecolor(bg_color)
+    # Set solid background for pixel-perfect RGB
+    fig.patch.set_facecolor(bg_color)
+    ax.set_facecolor(bg_color)
 
     if flat_polys:
         all_polys_union = unary_union(flat_polys)
@@ -441,143 +439,97 @@ def render_polygons_to_pil_image(
                 codes += [Path.MOVETO] + [Path.LINETO] * (len(icoords) - 2) + [Path.CLOSEPOLY]
 
             path = Path(verts_cm, codes)
-            patch = PathPatch(path, facecolor=np.array(rgb) / 255.0, linewidth=0, fill=True)
+            # Use exact RGB values normalized to 0-1 range for matplotlib
+            exact_color = (rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0)
+            patch = PathPatch(path, facecolor=exact_color, edgecolor='none', linewidth=0, fill=True, antialiased=False)
             ax.add_patch(patch)
 
         if progress_cb and current % 30 == 0:
             progress_cb(0.5 + (current / length) * 0.5)
 
-    # Export to PNG in memory with exact dimensions, no padding
+    # Export to PNG without any compression or antialiasing for pixel-perfect RGB
     buf = io.BytesIO()
     fig.savefig(buf, format='png', dpi=dpi, bbox_inches='tight', pad_inches=0,
-                transparent=(bg_color == 'transparent'))
+                facecolor=bg_color, edgecolor='none', transparent=False)
     plt.close(fig)
     buf.seek(0)
 
     img = Image.open(buf)
 
+    # Convert to RGB mode to ensure exact RGB values
+    if img.mode != 'RGB':
+        img = img.convert('RGB')
+
     # Ensure the image has the exact target dimensions by resizing if needed
     if img.size != (render_w, render_h):
-        img = img.resize((render_w, render_h), Image.Resampling.LANCZOS)
+        img = img.resize((render_w, render_h), Image.Resampling.NEAREST)  # Use NEAREST for pixel-perfect
 
     return img
 
-
-def image_coords_to_real_coords(image_x, image_y, image_size, rendered_image_size, max_size, layered_polygons):
+def analyze_position_rgb(image_x, image_y, rendered_image, filament_shades):
     """
-    Convert image coordinates (from UI click) to real-world coordinates in cm.
+    Simplified position analysis using direct RGB value lookup in the shade map.
 
     Args:
         image_x, image_y: Click coordinates in the rendered image
-        image_size: Original image size (w_px, h_px)
-        rendered_image_size: Size of the rendered image (render_w, render_h)
-        max_size: Maximum dimension in cm
-        layered_polygons: The layered polygons data structure
-
-    Returns:
-        (real_x_cm, real_y_cm): Real-world coordinates in centimeters
-    """
-    w_px, h_px = image_size
-    render_w, render_h = rendered_image_size
-
-    # Calculate pixels per cm (same as in render_polygons_to_pil_image)
-    target_pixels = 1024
-    pixels_per_cm = target_pixels / max_size
-
-    # Get the bounds of all polygons to understand the coordinate system
-    flat_polys = []
-    for layer_idx, layer_groups in enumerate(layered_polygons):
-        for shade_idx, group in enumerate(layer_groups):
-            if isinstance(group, (Polygon, MultiPolygon)):
-                geoms = [group]
-            else:
-                geoms = list(group)
-            for poly in geoms:
-                if not getattr(poly, "is_empty", False):
-                    flat_polys.append(poly)
-
-    if flat_polys:
-        all_polys_union = unary_union(flat_polys)
-        minx, miny, maxx, maxy = all_polys_union.bounds
-
-        # Convert to cm
-        minx_cm = minx / pixels_per_cm
-        miny_cm = miny / pixels_per_cm
-        maxx_cm = maxx / pixels_per_cm
-        maxy_cm = maxy / pixels_per_cm
-    else:
-        # Default bounds
-        minx_cm = 0
-        miny_cm = 0
-        maxx_cm = w_px / pixels_per_cm
-        maxy_cm = h_px / pixels_per_cm
-
-    # Convert image coordinates to real coordinates
-    # Note: matplotlib y-axis is flipped compared to image coordinates
-    real_x_cm = minx_cm + (image_x / render_w) * (maxx_cm - minx_cm)
-    real_y_cm = maxy_cm - (image_y / render_h) * (maxy_cm - miny_cm)
-
-    return real_x_cm, real_y_cm
-
-
-def analyze_position(real_x_cm, real_y_cm, layered_polygons, filament_shades, max_size):
-    """
-    Analyze what's at a specific real-world position.
-
-    Args:
-        real_x_cm, real_y_cm: Real-world coordinates in cm
-        layered_polygons: The layered polygons data structure
+        rendered_image: The PIL Image that was rendered
         filament_shades: The filament shades data structure
-        max_size: Maximum dimension in cm
 
     Returns:
         dict: Analysis results containing layer count, colors, etc.
     """
-    # Calculate pixels per cm
-    target_pixels = 1024
-    pixels_per_cm = target_pixels / max_size
-
-    # Convert cm coordinates back to pixel coordinates for polygon testing
-    real_x_px = real_x_cm * pixels_per_cm
-    real_y_px = real_y_cm * pixels_per_cm
-
-    from shapely.geometry import Point
-    point = Point(real_x_px, real_y_px)
-
-    layers_at_position = []
-    total_layer_count = 0
-
-    for layer_idx, layer_groups in enumerate(layered_polygons):
-        shades = filament_shades[layer_idx]
-        layer_info = {
-            'layer_index': layer_idx,
-            'filaments': []
+    # Get RGB value at clicked position
+    try:
+        rgb_at_position = rendered_image.getpixel((int(image_x), int(image_y)))
+        # Ensure we have RGB tuple (in case of RGBA or other modes)
+        if len(rgb_at_position) > 3:
+            rgb_at_position = rgb_at_position[:3]
+    except (IndexError, ValueError):
+        return {
+            'position_px': (image_x, image_y),
+            'rgb_value': None,
+            'total_layers': 0,
+            'layers': [],
+            'has_material': False,
+            'error': 'Click outside image bounds'
         }
 
-        for shade_idx, group in enumerate(layer_groups):
-            color = shades[shade_idx] if shade_idx < len(shades) else shades[-1]
+    # Build RGB to shade mapping
+    rgb_to_shade = {}
+    for layer_idx, shades in enumerate(filament_shades):
+        for shade_idx, rgb in enumerate(shades):
+            # Ensure RGB is a tuple for consistent hashing
+            rgb_tuple = tuple(rgb) if isinstance(rgb, (list, tuple)) else rgb
+            rgb_to_shade[rgb_tuple] = {
+                'layer_index': layer_idx,
+                'shade_index': shade_idx,
+                'color': rgb_tuple
+            }
 
-            if isinstance(group, (Polygon, MultiPolygon)):
-                geoms = [group]
-            else:
-                geoms = list(group)
+    # Look up the RGB value
+    shade_info = rgb_to_shade.get(rgb_at_position)
 
-            for poly in geoms:
-                if not getattr(poly, "is_empty", False) and poly.contains(point):
-                    layer_info['filaments'].append({
-                        'shade_index': shade_idx,
-                        'color': color,
-                        'rgb': color
-                    })
-                    total_layer_count += 1
-                    break  # Only count once per shade per layer
-
-        if layer_info['filaments']:
-            layers_at_position.append(layer_info)
+    if shade_info:
+        layer_at_position = {
+            'layer_index': shade_info['layer_index'],
+            'filaments': [{
+                'shade_index': shade_info['shade_index'],
+                'color': shade_info['color'],
+                'rgb': shade_info['color']
+            }]
+        }
+        total_layers = 1
+        has_material = True
+    else:
+        layer_at_position = None
+        total_layers = 0
+        has_material = False
 
     return {
-        'position_cm': (real_x_cm, real_y_cm),
-        'total_layers': total_layer_count,
-        'layers': layers_at_position,
-        'has_material': total_layer_count > 0
+        'position_px': (image_x, image_y),
+        'rgb_value': rgb_at_position,
+        'total_layers': total_layers,
+        'layer': layer_at_position,
+        'has_material': has_material
     }
+
