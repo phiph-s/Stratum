@@ -1,0 +1,9 @@
+nicegui
+numpy
+Pillow
+scikit-image
+mapbox-earcut
+shapely
+trimesh
+geopandas
+matplotlib

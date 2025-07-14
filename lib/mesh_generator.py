@@ -1,21 +1,26 @@
 import io
 import time
-
-from matplotlib import pyplot as plt
-from shapely.geometry.linestring import LineString
 import os
-import numpy as np
-from skimage import measure
-from shapely.geometry import Polygon, MultiPolygon
-from shapely import affinity
-import trimesh
-from skimage.color import rgb2lab, deltaE_ciede2000
-import geopandas as gpd
-from gi.repository import GLib
-from descartes import PolygonPatch
+import multiprocessing as mp
+from itertools import product
 from functools import wraps
 
-from trimesh.path.packing import meshes
+import numpy as np
+import trimesh
+import geopandas as gpd
+from skimage import measure
+from shapely.geometry import Polygon, MultiPolygon, LineString
+from shapely import affinity
+from shapely.ops import unary_union
+from PIL import Image
+
+# Matplotlib is used for rendering polygons to an image
+import matplotlib
+
+matplotlib.use('Agg')  # Use a non-interactive backend suitable for scripts/servers
+from matplotlib import pyplot as plt
+from matplotlib.path import Path
+from matplotlib.patches import PathPatch
 
 # Configuration defaults
 OUTPUT_DIR = 'meshes'
@@ -23,34 +28,42 @@ SIMPLIFY_TOLERANCE = 0.4  # Simplify tolerance for raw polygons
 SMOOTHING_WINDOW = 3  # Window size for contour smoothing
 MIN_AREA = 1  # Minimum polygon area to keep
 
+
 def timed(func):
+    """Decorator to print the execution time of a function."""
+
     @wraps(func)
     def wrapper(*args, **kwargs):
         t0 = time.perf_counter()
         result = func(*args, **kwargs)
         t1 = time.perf_counter()
-        print(f"[TIMING] {func.__name__:25s}: {t1-t0:0.3f}s")
+        print(f"[TIMING] {func.__name__:25s}: {t1 - t0:0.3f}s")
         return result
+
     return wrapper
 
 
 def ensure_dir(path):
+    """Ensures that a directory exists, creating it if necessary."""
     if not os.path.exists(path):
         os.makedirs(path)
 
 
 def extract_color_masks(img_arr, filament_shades):
     """
-    img_arr: H×W×4 (RGBA) numpy array
-    filament_shades: output of generate_shades()
-      a list of lists, so filament_shades[f][s] is an RGB tuple.
-    returns: dict keyed by (filament_index, shade_index) → boolean mask
+    Extracts boolean masks for each shade of each filament from an image array.
+
+    Args:
+        img_arr (numpy.array): HxWx4 (RGBA) numpy array of the image.
+        filament_shades (list): A nested list where filament_shades[f][s] is an RGB tuple.
+
+    Returns:
+        dict: A dictionary mapping (filament_index, shade_index) to a boolean mask.
     """
-    h, w = img_arr.shape[:2]
     rgb = img_arr[..., :3]
     masks = {}
 
-    used_shades = set() # to track used shades, prevent duplicates
+    used_shades = set()  # to track used shades, prevent duplicates
     for fi, shades in enumerate(filament_shades):
         for si, shade in enumerate(shades):
             if shade in used_shades:
@@ -66,38 +79,41 @@ def extract_color_masks(img_arr, filament_shades):
 
 @timed
 def mask_to_polygons(mask, min_area=100, simplify_tol=1.0):
-    # 1️⃣ Clean the raster mask – keep exactly the same pre-processing you had
-    # mask = binary_fill_holes(mask)                        # fills boundary-connected zeros :contentReference[oaicite:1]{index=1}
-    # mask = binary_closing(mask, structure=np.ones((3, 3)))# closes one-pixel gaps :contentReference[oaicite:2]{index=2}
+    """
+    Converts a boolean mask to a list of Shapely polygons using marching squares.
+    """
     padded = np.pad(mask.astype(float), 1, constant_values=0)
 
-    # 2️⃣ Convert every *ring* returned by marching-squares into a LineString
+    # Convert every *ring* returned by marching-squares into a LineString
     rings = [
         LineString([(p[1] - 1, p[0] - 1) for p in c])  # shift because of the 1-pixel pad
-        for c in measure.find_contours(padded, 0.5)  # skimage marching squares :contentReference[oaicite:3]{index=3}
+        for c in measure.find_contours(padded, 0.5)  # skimage marching squares
     ]
 
     if not rings:
         return []
 
-    # 3️⃣ Build polygons *with holes* at C speed — one line!
-    polys = gpd.GeoSeries(rings).build_area()  # GEOS/JTS build-area :contentReference[oaicite:4]{index=4}
+    # Build polygons *with holes* at C speed using GEOS/JTS build-area algorithm
+    polys = gpd.GeoSeries(rings).build_area()
 
-    # 4️⃣ Optional smoothing / simplification exactly like before
-    polys = polys.buffer(0)  # ensure valid shells after build-area :contentReference[oaicite:5]{index=5}
+    # Optional smoothing / simplification
+    polys = polys.buffer(0)  # ensure valid shells after build-area
     polys = polys.simplify(simplify_tol)
 
-    # 5️⃣ Filter out tiny blobs and return plain Shapely objects
+    # Filter out tiny blobs and return plain Shapely objects
     polys = polys[polys.area >= min_area]
 
     return list(polys.geometry)
 
 
 def flip_polygons_vertically(polygons, height_px):
+    """Flips a list of Shapely polygons vertically within a given height."""
     return [affinity.scale(poly, xfact=1, yfact=-1, origin=(0, height_px)) for poly in polygons]
+
 
 @timed
 def generate_layer_mesh(polygons, thickness):
+    """Generates an extruded 3D mesh from a list of 2D polygons."""
     if not isinstance(polygons, list):
         polygons = [polygons]
 
@@ -116,8 +132,12 @@ def generate_layer_mesh(polygons, thickness):
         meshes.append(m)
     return trimesh.util.concatenate(meshes) if meshes else None
 
+
 @timed
 def merge_layers_downward(meshes_list):
+    """
+    Performs an in-place cumulative union of meshes, from top to bottom.
+    """
     last = None
     for i, meshes in enumerate(meshes_list[::-1]):
         for j, mesh in enumerate(meshes[::-1]):
@@ -127,14 +147,11 @@ def merge_layers_downward(meshes_list):
                 last = trimesh.util.concatenate(last, mesh)
                 meshes_list[-(i + 1)][-(j + 1)] = last
 
-from shapely.ops import unary_union
+
 @timed
 def merge_polys_downward(polys_list):
     """
-    In-place cumulative union of every sub-layer group with all above it.
-    Input: polys_list[layer][shade] is a list of Polygons (possibly empty).
-    After this runs, every cell polys_list[layer][shade] will be a single
-    Shapely geometry representing the union of itself and all groups above it.
+    Performs an in-place cumulative union of polygons, from top to bottom.
     """
     accumulated = None
 
@@ -146,11 +163,7 @@ def merge_polys_downward(polys_list):
             group = layer[j]
             # 1) flatten the small list-of-polygons into one geometry
             if isinstance(group, list):
-                if not group:
-                    # empty group: nothing to union
-                    poly = None
-                else:
-                    poly = unary_union(group)
+                poly = unary_union(group) if group else None
             else:
                 poly = group
 
@@ -158,10 +171,7 @@ def merge_polys_downward(polys_list):
                 continue
 
             # 2) merge into accumulated
-            if accumulated is None:
-                accumulated = poly
-            else:
-                accumulated = accumulated.union(poly)
+            accumulated = poly if accumulated is None else accumulated.union(poly)
 
             # 3) write back the running union as a single geometry
             polys_list[i][j] = accumulated
@@ -169,9 +179,9 @@ def merge_polys_downward(polys_list):
     return polys_list
 
 
-
 def _generate_base_mesh(segmented_image, layer_height=0.2, base_layers=4,
-                      target_max_cm=10):
+                        target_max_cm=10):
+    """Generates the solid base mesh for the model."""
     base_height = layer_height * base_layers
     w_px, h_px = segmented_image.size
     scale_xy = (target_max_cm * 10) / max(w_px, h_px)
@@ -183,13 +193,11 @@ def _generate_base_mesh(segmented_image, layer_height=0.2, base_layers=4,
     if base_mesh:
         base_mesh.apply_scale([scale_xy, scale_xy, 1])
         return base_mesh, base_height
-
-import multiprocessing as mp
-from itertools import product
+    return None, 0
 
 
 def process_mask(task):
-    from shapely.geometry import Polygon  # If needed for serialization safety
+    """Worker function for parallel polygon extraction."""
     (fi, L), mask, h_px = task
     if not mask.any():
         return (fi, L, [])
@@ -197,22 +205,21 @@ def process_mask(task):
     flipped = flip_polygons_vertically(polys, h_px)
     return (fi, L, flipped)
 
+
 @timed
 def create_layered_polygons_parallel(
-    segmented_image,
-    shades,
-    progress_cb=None,
+        segmented_image,
+        shades,
+        progress_cb=None,
 ):
     """
-    :progress_cb: a callable progress_cb(completed: int, total: int) → bool
-                  should return False if you want to abort early.
+    Creates layered polygons from a segmented image in parallel.
+    The progress callback is called directly and is not tied to any GUI framework.
     """
-
     ensure_dir(OUTPUT_DIR)
     w_px, h_px = segmented_image.size
     seg_arr = np.array(segmented_image.convert("RGBA"))
 
-    # ---- steps 1 & 2 unchanged ----
     masks = extract_color_masks(seg_arr, shades)
     counts_map = {}
     for fi in range(1, len(shades)):
@@ -222,9 +229,7 @@ def create_layered_polygons_parallel(
             if m is not None:
                 cnt[m] = si + 1
         counts_map[fi] = cnt
-        print(f"Layer height {fi}: {np.unique(cnt)}")
 
-    # ---- step 3: build tasks ----
     h_px = seg_arr.shape[0]
     tasks = []
     for fi in range(1, len(shades)):
@@ -233,27 +238,20 @@ def create_layered_polygons_parallel(
             mask_L = cnt >= L
             tasks.append(((fi, L), mask_L, h_px))
 
+    if not tasks:
+        if progress_cb: progress_cb(1.0)
+        return []
+
     total = len(tasks)
-    completed = 0
     results = []
-
-    # ---- step 5: run in parallel but iterate for progress ----
     with mp.Pool(processes=mp.cpu_count()) as pool:
-        # imap yields one result at a time as soon as it's ready
-        for fi, L, polys in pool.imap_unordered(process_mask, tasks):
+        for i, (fi, L, polys) in enumerate(pool.imap_unordered(process_mask, tasks)):
             results.append((fi, L, polys))
-            completed += 1
-
             if progress_cb:
-                # We must call into GTK from the main thread:
-                # GLib.idle_add will schedule the callback on the main loop.
-                # We pass fraction (0.0–1.0) or raw counts if you prefer.
-                def _emit(done, tot):
-                    # If callback returns False, that means “please abort”
-                    return progress_cb((done/tot) / 2)
-                GLib.idle_add(_emit, completed, total)
+                # Callback is called directly. The calling application is responsible
+                # for handling thread safety if updating a GUI.
+                progress_cb((i + 1) / total * 0.5)  # This process is the first half.
 
-    # ---- steps 6 & 7 unchanged ----
     polys_map = {}
     for fi, L, polys in results:
         polys_map.setdefault(fi, {})[L] = polys
@@ -272,6 +270,7 @@ def create_layered_polygons_parallel(
 
 
 def process_generate_layer_mesh(task):
+    """Worker function for parallel mesh generation."""
     idx, idy, sublayer, layer_height = task
     try:
         m = generate_layer_mesh(sublayer, layer_height)
@@ -288,18 +287,18 @@ def polygons_to_meshes_parallel(segmented_image,
                                 base_layers=4,
                                 target_max_cm=10,
                                 progress_cb=None):
-    # 1) Flatten out all the (layer, shade, sublayer) tasks
+    """
+    Converts layered polygons to a list of 3D meshes in parallel.
+    """
     tasks = []
     for idx, polys in enumerate(polys_list):
         for idy, sublayer in enumerate(polys):
             tasks.append((idx, idy, sublayer, layer_height))
     total = len(tasks)
     if total == 0:
-        if progress_cb:
-            progress_cb(1.0)
+        if progress_cb: progress_cb(1.0)
         return []
 
-    # 2) Run them in a Pool, reporting progress as each result arrives
     results = []
     with mp.Pool(processes=mp.cpu_count()) as pool:
         for n, triple in enumerate(pool.imap(process_generate_layer_mesh, tasks), start=1):
@@ -307,7 +306,6 @@ def polygons_to_meshes_parallel(segmented_image,
             if progress_cb:
                 progress_cb(n / total)
 
-    # 3) Rebuild into meshes_list[layer][shade]
     meshes_dict = {}
     for idx, idy, mesh in results:
         if mesh:
@@ -320,13 +318,11 @@ def polygons_to_meshes_parallel(segmented_image,
         if sublayers:
             meshes_list.append(sublayers)
 
-    # 4) Merge downward and build the base
     merge_layers_downward(meshes_list)
     base_mesh, base_height = _generate_base_mesh(
         segmented_image, layer_height, base_layers, target_max_cm
     )
 
-    # 5) Scale & stack each layer
     w_px, h_px = segmented_image.size
     scale_xy = (target_max_cm * 10) / max(w_px, h_px)
     meshes = [base_mesh] if base_mesh else []
@@ -341,53 +337,26 @@ def polygons_to_meshes_parallel(segmented_image,
         combined.apply_scale([scale_xy, scale_xy, 1])
         meshes.append(combined)
 
-    # final callback = 100%
-    if progress_cb:
-        progress_cb(1.0)
-
+    if progress_cb: progress_cb(1.0)
     return meshes
 
 
-
-import numpy as np
-import matplotlib
-matplotlib.use('Agg')  # non-interactive backend
-import matplotlib.pyplot as plt
-from shapely.geometry import Polygon, MultiPolygon
-from shapely.ops import unary_union
-from gi.repository import GdkPixbuf
-import io
-
-
 @timed
-def render_polygons_to_pixbuf(
-    layered_polygons,
-    filament_shades,
-    image_size=None,
-    width=400,
-    height=400,
-    bg_color='white',
-    progress_cb=None,
-):
+def render_polygons_to_pil_image(
+        layered_polygons,
+        filament_shades,
+        image_size,
+        bg_color='white',
+        progress_cb=None,
+) -> Image.Image:
     """
-    Render each polygon in `layered_polygons` using its exact shade color.
-
-    - layered_polygons: list of layers; each layer is a list of sub-layer groups,
-      and each sub-layer group is either a Polygon/MultiPolygon or an iterable of them.
-    - filament_shades: list of lists of RGB tuples, so filament_shades[layer_idx][shade_idx]
-      gives the exact color for that sub-layer.
-    - image_size: (w_px, h_px) to match input resolution, else use width/height.
-    - bg_color: background fill (name, hex, or 'transparent').
+    Renders layered polygons to a PIL Image using Matplotlib.
+    This function replaces the GdkPixbuf-based original and has no GTK dependencies.
     """
-    # 1) Determine output resolution
-    if image_size:
-        w_px, h_px = image_size
-    else:
-        w_px, h_px = width, height
+    w_px, h_px = image_size
     dpi = 100
     fig_w, fig_h = w_px / dpi, h_px / dpi
 
-    # 2) Flatten out all polys & assign each its precise shade color
     flat_polys, flat_colors = [], []
     for layer_idx, layer_groups in enumerate(layered_polygons):
         shades = filament_shades[layer_idx]
@@ -402,13 +371,11 @@ def render_polygons_to_pixbuf(
                     flat_polys.append(poly)
                     flat_colors.append(color)
 
-    # 3) Set up Matplotlib figure
     fig = plt.figure(figsize=(fig_w, fig_h), dpi=dpi)
     ax = fig.add_axes([0, 0, 1, 1])
     ax.set_aspect('equal')
     ax.axis('off')
 
-    # Background
     if bg_color == 'transparent':
         fig.patch.set_alpha(0.0)
         ax.patch.set_alpha(0.0)
@@ -416,62 +383,37 @@ def render_polygons_to_pixbuf(
         fig.patch.set_facecolor(bg_color)
         ax.set_facecolor(bg_color)
 
-    # 4) Auto-zoom to all polygons
-    xs, ys = [], []
-    for poly in flat_polys:
-        minx, miny, maxx, maxy = poly.bounds
-        xs.extend([minx, maxx])
-        ys.extend([miny, maxy])
-    if xs and ys:
-        ax.set_xlim(min(xs), max(xs))
-        ax.set_ylim(min(ys), max(ys))
-
-    # 5) Draw every shape with its shade (full opacity)
-    from matplotlib.path import Path
-    from matplotlib.patches import PathPatch
+    if flat_polys:
+        all_polys_union = unary_union(flat_polys)
+        minx, miny, maxx, maxy = all_polys_union.bounds
+        ax.set_xlim(minx, maxx)
+        ax.set_ylim(miny, maxy)
 
     length = len(flat_polys)
-    current = 0
-    for poly, rgb in zip(flat_polys, flat_colors):
+    for current, (poly, rgb) in enumerate(zip(flat_polys, flat_colors)):
         geoms = poly.geoms if isinstance(poly, MultiPolygon) else [poly]
         for geom in geoms:
-            # Exterior ring
             verts = list(geom.exterior.coords)
-            codes = [Path.MOVETO] + [Path.LINETO]*(len(verts)-2) + [Path.CLOSEPOLY]
-            # Interior holes
+            codes = [Path.MOVETO] + [Path.LINETO] * (len(verts) - 2) + [Path.CLOSEPOLY]
             for interior in geom.interiors:
                 icoords = list(interior.coords)
                 verts += icoords
-                codes += [Path.MOVETO] + [Path.LINETO]*(len(icoords)-2) + [Path.CLOSEPOLY]
+                codes += [Path.MOVETO] + [Path.LINETO] * (len(icoords) - 2) + [Path.CLOSEPOLY]
 
             path = Path(verts, codes)
-            patch = PathPatch(
-                path,
-                facecolor=np.array(rgb)/255.0,
-                linewidth=0,
-                fill=True
-            )
+            patch = PathPatch(path, facecolor=np.array(rgb) / 255.0, linewidth=0, fill=True)
             ax.add_patch(patch)
-        # 5.1) Progress callback
-        current += 1
+
         if progress_cb and current % 30 == 0:
-            # We must call into GTK from the main thread:
-            # GLib.idle_add will schedule the callback on the main loop.
-            def _emit(done, tot):
-                # If callback returns False, that means “please abort”
-                return progress_cb((done/tot) / 2 + 0.5)
-            GLib.idle_add(_emit, current, length)
+            # Direct progress callback, assuming second half of a larger process.
+            progress_cb(0.5 + (current / length) * 0.5)
 
-
-    # 6) Export to PNG in memory
+    # Export to PNG in memory
     buf = io.BytesIO()
-    fig.savefig(buf, format='png', dpi=dpi, transparent=(bg_color=='transparent'))
+    fig.savefig(buf, format='png', dpi=dpi, transparent=(bg_color == 'transparent'))
     plt.close(fig)
     buf.seek(0)
 
-    # 7) Load into a GdkPixbuf
-    loader = GdkPixbuf.PixbufLoader.new_with_type('png')
-    loader.write(buf.getvalue())
-    loader.close()
-    return loader.get_pixbuf()
-
+    # Load into a PIL Image
+    img = Image.open(buf)
+    return img
