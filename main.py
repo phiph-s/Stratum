@@ -4,7 +4,9 @@ from lib.mask_creation import generate_shades, segment_to_shades
 from lib.mesh_generator import (
     create_layered_polygons_parallel,
     render_polygons_to_pil_image,
-    polygons_to_meshes_parallel
+    polygons_to_meshes_parallel,
+    image_coords_to_real_coords,
+    analyze_position
 )
 from PIL import Image
 import io
@@ -25,6 +27,8 @@ def main():
     editing_idx = None
     quality_mode = None
     size_input = None
+    rendered_image_size = None  # Store rendered image dimensions
+    filament_shades = None  # Store current shades
 
     # Edit dialog components (defined once)
     with ui.dialog() as edit_dialog:
@@ -35,6 +39,14 @@ def main():
             with ui.row().classes('justify-end gap-2'):
                 ui.button('Cancel', on_click=lambda: edit_dialog.close())
                 ui.button('Apply', on_click=lambda: apply_edit())
+
+    # Position info dialog
+    with ui.dialog() as position_dialog:
+        with ui.card():
+            ui.markdown('#### Position Information')
+            position_info_content = ui.column().classes('gap-2')
+            with ui.row().classes('justify-end'):
+                ui.button('Close', on_click=lambda: position_dialog.close())
 
     def open_edit(idx):
         nonlocal editing_idx
@@ -53,10 +65,76 @@ def main():
         update_filament_list(filament_container)
         edit_dialog.close()
 
+    def show_position_info(analysis_result):
+        """Display detailed position analysis in a dialog"""
+        position_info_content.clear()
+        print(analysis_result)
+        with position_info_content:
+            pos_x, pos_y = analysis_result['position_cm']
+            ui.markdown(f"**Position:** {pos_x:.2f} cm, {pos_y:.2f} cm")
+
+            if analysis_result['has_material']:
+                ui.markdown(f"**Total Layers:** {analysis_result['total_layers']}")
+
+                for layer_info in analysis_result['layers']:
+                    layer_idx = layer_info['layer_index']
+                    if layer_idx == 0:
+                        ui.markdown("**Base Layer**")
+                    else:
+                        ui.markdown(f"**Filament {layer_idx}:**")
+
+                    for filament_info in layer_info['filaments']:
+                        color = filament_info['color']
+                        rgb_str = f"rgb({color[0]}, {color[1]}, {color[2]})"
+
+                        with ui.row().classes('items-center gap-2'):
+                            # Color swatch
+                            ui.html(f'<div style="width: 20px; height: 20px; background-color: {rgb_str}; border: 1px solid #ccc; border-radius: 3px;"></div>')
+                            ui.label(f"Shade {filament_info['shade_index'] + 1}: {rgb_str}")
+            else:
+                ui.markdown("**No material at this position**")
+
+        position_dialog.open()
+
+    def handle_image_click(e):
+        """Handle clicks on the interactive image"""
+        if not polygons or not original_image or not rendered_image_size or not filament_shades:
+            ui.notify('Generate the preview first', color='orange')
+            return
+
+        # Get click coordinates
+        click_x = e.image_x
+        click_y = e.image_y
+
+        try:
+            # Convert image coordinates to real coordinates
+            real_x_cm, real_y_cm = image_coords_to_real_coords(
+                click_x, click_y,
+                original_image.size,
+                rendered_image_size,
+                size_input.value,
+                polygons
+            )
+
+            # Analyze the position
+            analysis = analyze_position(
+                real_x_cm, real_y_cm,
+                polygons,
+                filament_shades,
+                size_input.value
+            )
+
+            # Show the information
+            show_position_info(analysis)
+
+        except Exception as ex:
+            ui.notify(f'Error analyzing position: {str(ex)}', color='red')
+
     # Helper functions
     def update_filament_list(container):
         container.clear()
-        for idx, f in enumerate(filaments):
+        for idx, f in enumerate(reversed(filaments)):
+            idx = len(filaments) - 1 - idx  # Reverse index to match original order
             with container:
                 with ui.row().classes('items-center gap-2'):
                     ui.html(
@@ -64,8 +142,8 @@ def main():
                         f"border-radius:50%; border:1px solid #444;"></div>'''
                     )
                     #round
-                    ui.button(icon='arrow_upward', on_click=lambda _, i=idx: move_filament(i, i - 1)).props('flat round')
-                    ui.button(icon='arrow_downward', on_click=lambda _, i=idx: move_filament(i, i + 1)).props('flat round')
+                    ui.button(icon='arrow_upward', on_click=lambda _, i=idx: move_filament(i, i + 1)).props('flat round')
+                    ui.button(icon='arrow_downward', on_click=lambda _, i=idx: move_filament(i, i - 1)).props('flat round')
                     # Open edit dialog instead of inline inputs
                     ui.button(icon='edit', on_click=lambda _, i=idx: open_edit(i)).props('flat round')
                     ui.button(icon='delete', on_click=lambda _, i=idx: remove_filament(i)).props('flat round')
@@ -132,7 +210,7 @@ def main():
         upload_image.reset()
 
     async def on_redraw(image_component, progress_bar, spinner):
-        nonlocal segmented_image, polygons, original_image
+        nonlocal segmented_image, polygons, original_image, rendered_image_size, filament_shades
         if original_image is None or len(filaments) < 2:
             ui.notify('Load image and add at least two filaments', color='red')
             return
@@ -165,10 +243,13 @@ def main():
                 polys, shades, segmented.size, max_size=size_input.value,
                 progress_cb=lambda v: setattr(progress_bar, 'value', 0.5 + 0.5 * v)
             )
-            return segmented, polys, img
+            return segmented, polys, img, shades
 
         loop = asyncio.get_running_loop()
-        segmented_image, polygons, img = await loop.run_in_executor(None, compute)
+        segmented_image, polygons, img, filament_shades = await loop.run_in_executor(None, compute)
+
+        # Store rendered image size for coordinate conversion
+        rendered_image_size = img.size
 
         buf = io.BytesIO()
         img.save(buf, format='PNG')
@@ -256,7 +337,7 @@ def main():
         # Main area
         with ui.column().classes('flex-auto items-center justify-center p-4 overflow-y-auto h-full'):
             placeholder = ui.markdown('**No image loaded**').classes('text-gray-500')
-            image_component = ui.interactive_image(cross='blue')
+            image_component = ui.interactive_image(cross='blue',events=['mousedown'], on_mouse=handle_image_click)
             image_component.props('fit=scale-down')
             image_component.visible = False
 

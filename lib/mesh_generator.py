@@ -86,7 +86,7 @@ def mask_to_polygons(mask, min_area=100, simplify_tol=1.0):
 
     # Convert every *ring* returned by marching-squares into a LineString
     rings = [
-        LineString([(p[1] - 1, p[0] - 1) for p in c])  # shift because of the 1-pixel pad
+        LineString([(p[1], p[0]) for p in c])  # shift because of the 1-pixel pad
         for c in measure.find_contours(padded, 0.5)  # skimage marching squares
     ]
 
@@ -108,7 +108,8 @@ def mask_to_polygons(mask, min_area=100, simplify_tol=1.0):
 
 def flip_polygons_vertically(polygons, height_px):
     """Flips a list of Shapely polygons vertically within a given height."""
-    return [affinity.scale(poly, xfact=1, yfact=-1, origin=(0, height_px)) for poly in polygons]
+    polys = [affinity.scale(poly, xfact=1, yfact=-1, origin=(0, 0)) for poly in polygons]
+    return [affinity.translate(poly, yoff=height_px) for poly in polys]
 
 
 @timed
@@ -355,13 +356,13 @@ def render_polygons_to_pil_image(
 ) -> Image.Image:
     """
     Renders layered polygons to a PIL Image using Matplotlib.
-    Always renders the longest side to 2048 pixels with axes in centimeters.
+    Always renders the longest side to 1024 pixels without axes or labels.
 
     Args:
         max_size: The real-world size in cm of the longest dimension
     """
-    # Always render longest side to 2048
-    target_pixels = 2048
+    # Always render longest side to 1024
+    target_pixels = 1024
     if image_size[0] > image_size[1]:
         render_w = target_pixels
         render_h = int((image_size[1] / image_size[0]) * target_pixels)
@@ -371,8 +372,11 @@ def render_polygons_to_pil_image(
 
     w_px, h_px = image_size
     pixels_per_cm = target_pixels / max_size
-    fig_w_inch = render_w / pixels_per_cm / 2.54
-    fig_h_inch = render_h / pixels_per_cm / 2.54
+
+    # Set DPI and figure size to get exact pixel dimensions
+    dpi = 100
+    fig_w_inch = render_w / dpi
+    fig_h_inch = render_h / dpi
 
     flat_polys, flat_colors = [], []
     for layer_idx, layer_groups in enumerate(layered_polygons):
@@ -388,10 +392,12 @@ def render_polygons_to_pil_image(
                     flat_polys.append(poly)
                     flat_colors.append(color)
 
-    fig = plt.figure(figsize=(fig_w_inch, fig_h_inch))
-    ax = fig.add_subplot(111)  # This allows axes to be visible
+    fig = plt.figure(figsize=(fig_w_inch, fig_h_inch), dpi=dpi)
+    ax = fig.add_subplot(111)
     ax.set_aspect('equal')
-    ax.set_axis_on()
+
+    # Remove all axes, labels, and ticks
+    ax.set_axis_off()
 
     if bg_color == 'transparent':
         fig.patch.set_alpha(0.0)
@@ -399,15 +405,6 @@ def render_polygons_to_pil_image(
     else:
         fig.patch.set_facecolor(bg_color)
         ax.set_facecolor(bg_color)
-
-    # set color of the axes
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_color(font_color)
-    ax.spines['bottom'].set_color(font_color)
-    ax.tick_params(axis='both', colors=font_color)
-    ax.xaxis.set_tick_params(labelcolor=font_color)
-    ax.yaxis.set_tick_params(labelcolor=font_color)
 
     if flat_polys:
         all_polys_union = unary_union(flat_polys)
@@ -421,18 +418,12 @@ def render_polygons_to_pil_image(
 
         ax.set_xlim(minx_cm, maxx_cm)
         ax.set_ylim(miny_cm, maxy_cm)
-
-        # Set axis labels
-        ax.set_xlabel('Width (cm)', fontsize=12, color=font_color)
-        ax.set_ylabel('Height (cm)', fontsize=12, color=font_color)
     else:
         # Default limits if no polygons
         w_cm = w_px / pixels_per_cm
         h_cm = h_px / pixels_per_cm
         ax.set_xlim(0, w_cm)
         ax.set_ylim(0, h_cm)
-        ax.set_xlabel('Width (cm)', fontsize=12, color=font_color)
-        ax.set_ylabel('Height (cm)', fontsize=12, color=font_color)
 
     length = len(flat_polys)
     for current, (poly, rgb) in enumerate(zip(flat_polys, flat_colors)):
@@ -456,11 +447,137 @@ def render_polygons_to_pil_image(
         if progress_cb and current % 30 == 0:
             progress_cb(0.5 + (current / length) * 0.5)
 
-    # Export to PNG in memory with the target resolution
+    # Export to PNG in memory with exact dimensions, no padding
     buf = io.BytesIO()
-    fig.savefig(buf, format='png', transparent=(bg_color == 'transparent'))
+    fig.savefig(buf, format='png', dpi=dpi, bbox_inches='tight', pad_inches=0,
+                transparent=(bg_color == 'transparent'))
     plt.close(fig)
     buf.seek(0)
 
     img = Image.open(buf)
+
+    # Ensure the image has the exact target dimensions by resizing if needed
+    if img.size != (render_w, render_h):
+        img = img.resize((render_w, render_h), Image.Resampling.LANCZOS)
+
     return img
+
+
+def image_coords_to_real_coords(image_x, image_y, image_size, rendered_image_size, max_size, layered_polygons):
+    """
+    Convert image coordinates (from UI click) to real-world coordinates in cm.
+
+    Args:
+        image_x, image_y: Click coordinates in the rendered image
+        image_size: Original image size (w_px, h_px)
+        rendered_image_size: Size of the rendered image (render_w, render_h)
+        max_size: Maximum dimension in cm
+        layered_polygons: The layered polygons data structure
+
+    Returns:
+        (real_x_cm, real_y_cm): Real-world coordinates in centimeters
+    """
+    w_px, h_px = image_size
+    render_w, render_h = rendered_image_size
+
+    # Calculate pixels per cm (same as in render_polygons_to_pil_image)
+    target_pixels = 1024
+    pixels_per_cm = target_pixels / max_size
+
+    # Get the bounds of all polygons to understand the coordinate system
+    flat_polys = []
+    for layer_idx, layer_groups in enumerate(layered_polygons):
+        for shade_idx, group in enumerate(layer_groups):
+            if isinstance(group, (Polygon, MultiPolygon)):
+                geoms = [group]
+            else:
+                geoms = list(group)
+            for poly in geoms:
+                if not getattr(poly, "is_empty", False):
+                    flat_polys.append(poly)
+
+    if flat_polys:
+        all_polys_union = unary_union(flat_polys)
+        minx, miny, maxx, maxy = all_polys_union.bounds
+
+        # Convert to cm
+        minx_cm = minx / pixels_per_cm
+        miny_cm = miny / pixels_per_cm
+        maxx_cm = maxx / pixels_per_cm
+        maxy_cm = maxy / pixels_per_cm
+    else:
+        # Default bounds
+        minx_cm = 0
+        miny_cm = 0
+        maxx_cm = w_px / pixels_per_cm
+        maxy_cm = h_px / pixels_per_cm
+
+    # Convert image coordinates to real coordinates
+    # Note: matplotlib y-axis is flipped compared to image coordinates
+    real_x_cm = minx_cm + (image_x / render_w) * (maxx_cm - minx_cm)
+    real_y_cm = maxy_cm - (image_y / render_h) * (maxy_cm - miny_cm)
+
+    return real_x_cm, real_y_cm
+
+
+def analyze_position(real_x_cm, real_y_cm, layered_polygons, filament_shades, max_size):
+    """
+    Analyze what's at a specific real-world position.
+
+    Args:
+        real_x_cm, real_y_cm: Real-world coordinates in cm
+        layered_polygons: The layered polygons data structure
+        filament_shades: The filament shades data structure
+        max_size: Maximum dimension in cm
+
+    Returns:
+        dict: Analysis results containing layer count, colors, etc.
+    """
+    # Calculate pixels per cm
+    target_pixels = 1024
+    pixels_per_cm = target_pixels / max_size
+
+    # Convert cm coordinates back to pixel coordinates for polygon testing
+    real_x_px = real_x_cm * pixels_per_cm
+    real_y_px = real_y_cm * pixels_per_cm
+
+    from shapely.geometry import Point
+    point = Point(real_x_px, real_y_px)
+
+    layers_at_position = []
+    total_layer_count = 0
+
+    for layer_idx, layer_groups in enumerate(layered_polygons):
+        shades = filament_shades[layer_idx]
+        layer_info = {
+            'layer_index': layer_idx,
+            'filaments': []
+        }
+
+        for shade_idx, group in enumerate(layer_groups):
+            color = shades[shade_idx] if shade_idx < len(shades) else shades[-1]
+
+            if isinstance(group, (Polygon, MultiPolygon)):
+                geoms = [group]
+            else:
+                geoms = list(group)
+
+            for poly in geoms:
+                if not getattr(poly, "is_empty", False) and poly.contains(point):
+                    layer_info['filaments'].append({
+                        'shade_index': shade_idx,
+                        'color': color,
+                        'rgb': color
+                    })
+                    total_layer_count += 1
+                    break  # Only count once per shade per layer
+
+        if layer_info['filaments']:
+            layers_at_position.append(layer_info)
+
+    return {
+        'position_cm': (real_x_cm, real_y_cm),
+        'total_layers': total_layer_count,
+        'layers': layers_at_position,
+        'has_material': total_layer_count > 0
+    }
