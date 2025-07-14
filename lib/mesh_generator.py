@@ -363,7 +363,7 @@ def render_polygons_to_pil_image(
         max_size: The real-world size in cm of the longest dimension
     """
     # Always render longest side to 1024
-    target_pixels = 1024
+    target_pixels = 2048
     if image_size[0] > image_size[1]:
         render_w = target_pixels
         render_h = int((image_size[1] / image_size[0]) * target_pixels)
@@ -497,14 +497,19 @@ def analyze_position_rgb(image_x, image_y, rendered_image, filament_shades):
     # Build RGB to shade mapping
     rgb_to_shade = {}
     for layer_idx, shades in enumerate(filament_shades):
+
         for shade_idx, rgb in enumerate(shades):
             # Ensure RGB is a tuple for consistent hashing
             rgb_tuple = tuple(rgb) if isinstance(rgb, (list, tuple)) else rgb
-            rgb_to_shade[rgb_tuple] = {
-                'layer_index': layer_idx,
-                'shade_index': shade_idx,
-                'color': rgb_tuple
-            }
+            # if already exists, only overwrite if lower index
+            if (not rgb_tuple in rgb_to_shade) or layer_idx < rgb_to_shade[rgb_tuple]['layer_index']:
+                # Store the layer index, shade index, and RGB color
+                rgb_to_shade[rgb_tuple] = {
+                    'layer_index': layer_idx,
+                    'shade_index': shade_idx,
+                    'color': rgb_tuple
+                }
+
 
     # Look up the RGB value
     shade_info = rgb_to_shade.get(rgb_at_position)

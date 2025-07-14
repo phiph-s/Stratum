@@ -70,131 +70,92 @@ def main():
         position_info_content.clear()
         print(analysis_result)
         with position_info_content:
-            # Handle RGB-based analysis result format
-            if 'position_px' in analysis_result:
-                # New RGB-based analysis
-                pos_x, pos_y = analysis_result['position_px']
-                ui.markdown(f"**Position:** {pos_x:.0f}, {pos_y:.0f} px")
+            pos_x, pos_y = analysis_result['position_px']
+            ui.markdown(f"**Position:** {pos_x:.0f}, {pos_y:.0f} px")
 
-                if 'rgb_value' in analysis_result and analysis_result['rgb_value']:
-                    rgb = analysis_result['rgb_value']
-                    rgb_str = f"rgb({rgb[0]}, {rgb[1]}, {rgb[2]})"
-                    ui.markdown(f"**RGB Value:** {rgb_str}")
+            layer_info = analysis_result['layer']
+            layer_idx = layer_info['layer_index']
 
-                    # Color swatch for the actual RGB value
-                    with ui.row().classes('items-center gap-2'):
-                        ui.html(f'<div style="width: 20px; height: 20px; background-color: {rgb_str}; border: 1px solid #ccc; border-radius: 3px;"></div>')
-                        ui.label(f"Pixel color: {rgb_str}")
+            # Create matplotlib plot showing all shades underneath
+            if filament_shades:
+                try:
+                    import numpy as np
 
-                if 'error' in analysis_result:
-                    ui.markdown(f"**Error:** {analysis_result['error']}")
+                    # Collect all shades that would be present at this position
+                    all_shades_present = []
+                    shade_labels = []
+                    true_colors = []
 
-            else:
-                # Old coordinate-based analysis (fallback)
-                pos_x, pos_y = analysis_result['position_cm']
-                ui.markdown(f"**Position:** {pos_x:.2f} cm, {pos_y:.2f} cm")
-
-            if analysis_result['has_material']:
-                ui.markdown(f"**Total Layers:** {analysis_result['total_layers']}")
-
-                # Find the topmost filament and show its real (unshaded) color
-                topmost_layer = None
-                topmost_filament_idx = -1
-
-                layer_info = analysis_result['layer']
-                layer_idx = layer_info['layer_index']
-                if layer_idx > topmost_filament_idx:
-                    topmost_filament_idx = layer_idx
-                    topmost_layer = layer_info
-
-                # Show real color of topmost filament
-                if topmost_layer:  # Skip base layer
-                    real_color = filaments[topmost_filament_idx]['color']  # Convert to 0-based index
-                    real_rgb = tuple(int(real_color[i:i+2], 16) for i in (1,3,5))
-                    real_rgb_str = f"rgb({real_rgb[0]}, {real_rgb[1]}, {real_rgb[2]})"
-
-                    ui.markdown(f"**Topmost Filament #{topmost_filament_idx} Real Color:**")
-                    with ui.row().classes('items-center gap-2'):
-                        ui.html(f'<div style="width: 30px; height: 30px; background-color: {real_rgb_str}; border: 2px solid #333; border-radius: 5px;"></div>')
-                        ui.label(f"Unshaded color: {real_rgb_str}")
-
-                # Create matplotlib plot showing all shades underneath
-                if filament_shades:
-                    print (filament_shades)
-                    try:
-                        import numpy as np
-
-                        # Collect all shades that would be present at this position
-                        all_shades_present = []
-                        shade_labels = []
-
-                        layer_info = analysis_result['layer']
-                        layer_idx = layer_info['layer_index']
-
-                        # Get with index lower to current layer
-                        shade = layer_info['filaments'][0]['shade_index']
-                        for i in range(shade + 1):
-                            all_shades_present.append(filament_shades[layer_idx][i])
-                            shade_labels.append(f"Layer {layer_idx + 1} Shade {i + 1}")
-                        # add all shades from layers with lower index
-                        for i in reversed(range(layer_idx)):
-                            # add all shades from lower layers
-                            for j in reversed(range(len(filament_shades[i]))):
-                                all_shades_present.append(filament_shades[i][j])
-                                shade_labels.append(f"Layer {i + 1} Shade {j + 1}")
+                    # Get with index lower to current layer
+                    shade = layer_info['filaments'][0]['shade_index']
+                    for i in reversed(range(shade + 1)):
+                        all_shades_present.append(filament_shades[layer_idx][i])
+                        shade_labels.append(f"{layer_idx + 1}, {i + 1}")
+                        true_colors.append(filament_shades[layer_idx][-1])
+                    # add all shades from layers with lower index
+                    for i in reversed(range(layer_idx)):
+                        # add all shades from lower layers
+                        for j in reversed(range(len(filament_shades[i]))):
+                            all_shades_present.append(filament_shades[i][j])
+                            shade_labels.append(f"{i + 1}, {j + 1}")
+                            true_colors.append(filament_shades[i][-1])
 
 
-                        if all_shades_present:
-                            # Create the plot using NiceGUI's matplotlib context manager
-                            plot_height = max(2, len(all_shades_present) * 0.3)
-                            with ui.matplotlib(figsize=(8, plot_height)).figure as fig:
+                    if all_shades_present:
+                        # Create the plot using NiceGUI's matplotlib context manager
+                        plot_height = max(2, len(all_shades_present) * 0.5)
+                        with ui.card().tight():
+                            with ui.matplotlib(figsize=(5, plot_height)).figure as fig:
                                 ax = fig.gca()
 
                                 # Create horizontal bars for each shade
                                 y_positions = np.arange(len(all_shades_present))
-                                colors_normalized = [(r/255, g/255, b/255) for r, g, b in all_shades_present]
 
-                                bars = ax.barh(y_positions, [1] * len(all_shades_present),
-                                             color=colors_normalized, edgecolor='black', linewidth=0.5)
+                                # Normalize colors for matplotlib
+                                shaded_colors_normalized = [(r/255, g/255, b/255) for r, g, b in all_shades_present]
+                                true_colors_normalized = [(r/255, g/255, b/255) for r, g, b in true_colors]
+
+                                # Create two columns of bars - shaded colors (left) and true colors (right)
+                                bar_width = 0.5
+                                bars_shaded = ax.barh(y_positions, [bar_width] * len(all_shades_present),
+                                                    left=[0] * len(all_shades_present),
+                                                    color=shaded_colors_normalized, edgecolor='black', linewidth=0.5,
+                                                    label='calculated color')
+
+                                bars_true = ax.barh(y_positions, [bar_width] * len(all_shades_present),
+                                                  left=[bar_width] * len(all_shades_present),
+                                                  color=true_colors_normalized, edgecolor='black', linewidth=0.5,
+                                                  label='true filament color')
 
                                 # Customize the plot
                                 ax.set_yticks(y_positions)
                                 ax.set_yticklabels(shade_labels)
-                                ax.set_xlabel('Shade Colors at This Position')
-                                ax.set_title('Layer Stack Visualization (Bottom to Top)', fontweight='bold')
                                 ax.set_xlim(0, 1)
-                                ax.set_xticks([])
+                                ax.set_xticks([0.25, 0.75])
+                                ax.set_xticklabels(['Shaded', 'True Color'])
 
                                 # Invert y-axis so bottom layers are at bottom
                                 ax.invert_yaxis()
 
                                 # Add RGB values as text on bars
-                                for i, (bar, rgb) in enumerate(zip(bars, all_shades_present)):
-                                    rgb_text = f"({rgb[0]}, {rgb[1]}, {rgb[2]})"
-                                    ax.text(0.5, i, rgb_text, ha='center', va='center',
-                                           fontweight='bold', color='white' if sum(rgb) < 384 else 'black')
+                                for i, (shaded_rgb, true_rgb) in enumerate(zip(all_shades_present, true_colors)):
+                                    # Text for shaded color
+                                    shaded_text = f"({shaded_rgb[0]}, {shaded_rgb[1]}, {shaded_rgb[2]})"
+                                    ax.text(0.25, i, shaded_text, ha='center', va='center',
+                                           fontweight='bold', fontsize=8,
+                                           color='white' if sum(shaded_rgb) < 384 else 'black')
+
+                                    # Text for true color
+                                    true_text = f"({true_rgb[0]}, {true_rgb[1]}, {true_rgb[2]})"
+                                    ax.text(0.75, i, true_text, ha='center', va='center',
+                                           fontweight='bold', fontsize=8,
+                                           color='white' if sum(true_rgb) < 384 else 'black')
 
                                 fig.tight_layout()
 
-                    except Exception as e:
-                        ui.markdown(f"**Error creating plot:** {str(e)}")
+                except Exception as e:
+                    ui.markdown(f"**Error creating plot:** {str(e)}")
 
-                # Show detailed layer information (existing code)
-                layer_info = analysis_result['layer']
-                layer_idx = layer_info['layer_index']
-                if layer_idx == 0:
-                    ui.markdown("**Base Layer**")
-                else:
-                    ui.markdown(f"**Filament {layer_idx}:**")
-
-                for filament_info in layer_info['filaments']:
-                    color = filament_info['color']
-                    rgb_str = f"rgb({color[0]}, {color[1]}, {color[2]})"
-
-                    with ui.row().classes('items-center gap-2'):
-                        # Color swatch
-                        ui.html(f'<div style="width: 20px; height: 20px; background-color: {rgb_str}; border: 1px solid #ccc; border-radius: 3px;"></div>')
-                        ui.label(f"Shade {filament_info['shade_index'] + 1}: {rgb_str}")
             else:
                 ui.markdown("**No material at this position**")
 
@@ -432,7 +393,7 @@ def main():
         # Main area
         with ui.column().classes('flex-auto items-center justify-center p-4 overflow-y-auto h-full'):
             placeholder = ui.markdown('**No image loaded**').classes('text-gray-500')
-            image_component = ui.interactive_image(cross='blue',events=['mousedown'], on_mouse=handle_image_click)
+            image_component = ui.interactive_image(cross='blue',events=['mousedown'], on_mouse=handle_image_click).classes('h-full')
             image_component.props('fit=scale-down')
             image_component.visible = False
 
