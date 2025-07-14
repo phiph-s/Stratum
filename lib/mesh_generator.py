@@ -198,10 +198,10 @@ def _generate_base_mesh(segmented_image, layer_height=0.2, base_layers=4,
 
 def process_mask(task):
     """Worker function for parallel polygon extraction."""
-    (fi, L), mask, h_px = task
+    (fi, L), mask, h_px, min_area, simplify_tol = task
     if not mask.any():
         return (fi, L, [])
-    polys = mask_to_polygons(mask, min_area=MIN_AREA, simplify_tol=SIMPLIFY_TOLERANCE)
+    polys = mask_to_polygons(mask, min_area=min_area, simplify_tol=simplify_tol)
     flipped = flip_polygons_vertically(polys, h_px)
     return (fi, L, flipped)
 
@@ -211,6 +211,8 @@ def create_layered_polygons_parallel(
         segmented_image,
         shades,
         progress_cb=None,
+        min_area=MIN_AREA,
+        simplify_tol=SIMPLIFY_TOLERANCE
 ):
     """
     Creates layered polygons from a segmented image in parallel.
@@ -236,7 +238,7 @@ def create_layered_polygons_parallel(
         cnt = counts_map[fi]
         for L in range(1, len(np.unique(cnt)) + 1):
             mask_L = cnt >= L
-            tasks.append(((fi, L), mask_L, h_px))
+            tasks.append(((fi, L), mask_L, h_px, min_area, simplify_tol))
 
     if not tasks:
         if progress_cb: progress_cb(1.0)
@@ -346,16 +348,31 @@ def render_polygons_to_pil_image(
         layered_polygons,
         filament_shades,
         image_size,
-        bg_color='white',
+        max_size=10.0,  # Maximum dimension in cm
+        bg_color='transparent',
+        font_color=(1, 1, 1),
         progress_cb=None,
 ) -> Image.Image:
     """
     Renders layered polygons to a PIL Image using Matplotlib.
-    This function replaces the GdkPixbuf-based original and has no GTK dependencies.
+    Always renders the longest side to 2048 pixels with axes in centimeters.
+
+    Args:
+        max_size: The real-world size in cm of the longest dimension
     """
+    # Always render longest side to 2048
+    target_pixels = 2048
+    if image_size[0] > image_size[1]:
+        render_w = target_pixels
+        render_h = int((image_size[1] / image_size[0]) * target_pixels)
+    else:
+        render_h = target_pixels
+        render_w = int((image_size[0] / image_size[1]) * target_pixels)
+
     w_px, h_px = image_size
-    dpi = 100
-    fig_w, fig_h = w_px / dpi, h_px / dpi
+    pixels_per_cm = target_pixels / max_size
+    fig_w_inch = render_w / pixels_per_cm / 2.54
+    fig_h_inch = render_h / pixels_per_cm / 2.54
 
     flat_polys, flat_colors = [], []
     for layer_idx, layer_groups in enumerate(layered_polygons):
@@ -371,10 +388,10 @@ def render_polygons_to_pil_image(
                     flat_polys.append(poly)
                     flat_colors.append(color)
 
-    fig = plt.figure(figsize=(fig_w, fig_h), dpi=dpi)
-    ax = fig.add_axes([0, 0, 1, 1])
+    fig = plt.figure(figsize=(fig_w_inch, fig_h_inch))
+    ax = fig.add_subplot(111)  # This allows axes to be visible
     ax.set_aspect('equal')
-    ax.axis('off')
+    ax.set_axis_on()
 
     if bg_color == 'transparent':
         fig.patch.set_alpha(0.0)
@@ -383,37 +400,67 @@ def render_polygons_to_pil_image(
         fig.patch.set_facecolor(bg_color)
         ax.set_facecolor(bg_color)
 
+    # set color of the axes
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['left'].set_color(font_color)
+    ax.spines['bottom'].set_color(font_color)
+    ax.tick_params(axis='both', colors=font_color)
+    ax.xaxis.set_tick_params(labelcolor=font_color)
+    ax.yaxis.set_tick_params(labelcolor=font_color)
+
     if flat_polys:
         all_polys_union = unary_union(flat_polys)
         minx, miny, maxx, maxy = all_polys_union.bounds
-        ax.set_xlim(minx, maxx)
-        ax.set_ylim(miny, maxy)
+
+        # Convert pixel coordinates to cm for display
+        minx_cm = minx / pixels_per_cm
+        miny_cm = miny / pixels_per_cm
+        maxx_cm = maxx / pixels_per_cm
+        maxy_cm = maxy / pixels_per_cm
+
+        ax.set_xlim(minx_cm, maxx_cm)
+        ax.set_ylim(miny_cm, maxy_cm)
+
+        # Set axis labels
+        ax.set_xlabel('Width (cm)', fontsize=12, color=font_color)
+        ax.set_ylabel('Height (cm)', fontsize=12, color=font_color)
+    else:
+        # Default limits if no polygons
+        w_cm = w_px / pixels_per_cm
+        h_cm = h_px / pixels_per_cm
+        ax.set_xlim(0, w_cm)
+        ax.set_ylim(0, h_cm)
+        ax.set_xlabel('Width (cm)', fontsize=12, color=font_color)
+        ax.set_ylabel('Height (cm)', fontsize=12, color=font_color)
 
     length = len(flat_polys)
     for current, (poly, rgb) in enumerate(zip(flat_polys, flat_colors)):
         geoms = poly.geoms if isinstance(poly, MultiPolygon) else [poly]
         for geom in geoms:
             verts = list(geom.exterior.coords)
+            # Convert polygon coordinates to cm
+            verts_cm = [(x / pixels_per_cm, y / pixels_per_cm) for x, y in verts]
             codes = [Path.MOVETO] + [Path.LINETO] * (len(verts) - 2) + [Path.CLOSEPOLY]
+
             for interior in geom.interiors:
                 icoords = list(interior.coords)
-                verts += icoords
+                icoords_cm = [(x / pixels_per_cm, y / pixels_per_cm) for x, y in icoords]
+                verts_cm += icoords_cm
                 codes += [Path.MOVETO] + [Path.LINETO] * (len(icoords) - 2) + [Path.CLOSEPOLY]
 
-            path = Path(verts, codes)
+            path = Path(verts_cm, codes)
             patch = PathPatch(path, facecolor=np.array(rgb) / 255.0, linewidth=0, fill=True)
             ax.add_patch(patch)
 
         if progress_cb and current % 30 == 0:
-            # Direct progress callback, assuming second half of a larger process.
             progress_cb(0.5 + (current / length) * 0.5)
 
-    # Export to PNG in memory
+    # Export to PNG in memory with the target resolution
     buf = io.BytesIO()
-    fig.savefig(buf, format='png', dpi=dpi, transparent=(bg_color == 'transparent'))
+    fig.savefig(buf, format='png', transparent=(bg_color == 'transparent'))
     plt.close(fig)
     buf.seek(0)
 
-    # Load into a PIL Image
     img = Image.open(buf)
     return img

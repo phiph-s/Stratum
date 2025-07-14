@@ -23,6 +23,8 @@ def main():
     polygons = None
     upload_image = None
     editing_idx = None
+    quality_mode = None
+    size_input = None
 
     # Edit dialog components (defined once)
     with ui.dialog() as edit_dialog:
@@ -58,14 +60,18 @@ def main():
             with container:
                 with ui.row().classes('items-center gap-2'):
                     ui.html(
-                        f'''<div style="width:24px; height:24px; background-color:{f['color']}; "
+                        f'''<div style="width: 32px; height:32px; border-radius: 50%; border: 2px lightgray solid; background-color:{f['color']}; "
                         f"border-radius:50%; border:1px solid #444;"></div>'''
                     )
-                    ui.button(icon='arrow_upward', on_click=lambda _, i=idx: move_filament(i, i - 1))
-                    ui.button(icon='arrow_downward', on_click=lambda _, i=idx: move_filament(i, i + 1))
+                    #round
+                    ui.button(icon='arrow_upward', on_click=lambda _, i=idx: move_filament(i, i - 1)).props('flat round')
+                    ui.button(icon='arrow_downward', on_click=lambda _, i=idx: move_filament(i, i + 1)).props('flat round')
                     # Open edit dialog instead of inline inputs
-                    ui.button('Edit', icon='edit', on_click=lambda _, i=idx: open_edit(i))
-                    ui.button(icon='delete', on_click=lambda _, i=idx: remove_filament(i))
+                    ui.button(icon='edit', on_click=lambda _, i=idx: open_edit(i)).props('flat round')
+                    ui.button(icon='delete', on_click=lambda _, i=idx: remove_filament(i)).props('flat round')
+        if len(filaments) == 0:
+            with container:
+               ui.markdown('**No filaments added**').classes('text-gray-500')
 
     def move_filament(old, new):
         if 0 <= new < len(filaments):
@@ -137,15 +143,26 @@ def main():
         colors = [tuple(int(f['color'][i:i+2], 16) for i in (1,3,5)) for f in filaments]
         covers = [f['cover'] for f in filaments]
 
+        QUALITY_PRESETS = {
+            'Fast': {'min_area': 2, 'simplify_tol': 1.0},
+            'Medium': {'min_area': 1, 'simplify_tol': 0.5},
+            'Best':  {'min_area': 0.25, 'simplify_tol': 0.1}
+        }
+
+        print("q", QUALITY_PRESETS[quality_mode.value])
+
+        min_area, simplify_tol = QUALITY_PRESETS[quality_mode.value].values()
+
         def compute():
             shades = generate_shades(colors, covers)
             segmented = segment_to_shades(original_image, shades)
             polys = create_layered_polygons_parallel(
                 segmented, shades,
-                progress_cb=lambda v: setattr(progress_bar, 'value', v * 0.5)
+                progress_cb=lambda v: setattr(progress_bar, 'value', v * 0.5),
+                min_area=min_area, simplify_tol=simplify_tol
             )
             img = render_polygons_to_pil_image(
-                polys, shades, segmented.size,
+                polys, shades, segmented.size, max_size=size_input.value,
                 progress_cb=lambda v: setattr(progress_bar, 'value', 0.5 + 0.5 * v)
             )
             return segmented, polys, img
@@ -165,52 +182,71 @@ def main():
             ui.notify('Nothing to export', color='red')
             return
         buf = io.BytesIO()
+        progress_bar.value = 0
+        progress_bar.visible = True
+        spinner.visible = True
         with zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
             meshes = polygons_to_meshes_parallel(
                 segmented_image,
                 polygons[1:],
                 layer_height=float(layer_in.value),
                 target_max_cm=float(size_in.value),
-                base_layers=int(base_in.value)
+                base_layers=int(base_in.value),
+                progress_cb = lambda v: setattr(progress_bar, 'value', v)
             )
             for idx, mesh in enumerate(meshes):
                 stl_buf = io.BytesIO()
                 mesh.export(file_obj=stl_buf, file_type='stl')
                 archive.writestr(f'mesh_{idx}.stl', stl_buf.getvalue())
         buf.seek(0)
-        ui.download(buf.getvalue(), 'meshes.zip')
+        ui.download.content(buf.getvalue(), 'meshes.zip')
+        spinner.visible = False
+        progress_bar.visible = False
 
     # Build UI
     with ui.row().classes('w-full h-screen flex-nowrap'):
         # Sidebar with logo and controls
-        with ui.column().classes('flex-none w-120 p-6 gap-4 overflow-y-auto h-full bg-gray-800 text-white'):
+        with ui.column().classes('flex-none w-96 p-6 gap-4 overflow-y-auto h-full bg-gray-800 text-white'):
             # New / Open / Save row
             with ui.row().classes('items-center gap-2'):
-                ui.image('logo.png').classes('w-16 h-16')
+                ui.image('logo.png').classes('w-16 h-16 mr-5')
 
                 ui.button(icon='note_add', on_click=new_project).props('color=warning').tooltip('New Project')
                 ui.button(icon='folder_open', on_click=lambda: project_dialog.open()).props('color=primary').tooltip('Open Project')
                 ui.button(icon='save', on_click=save_project).props('color=primary').tooltip('Save Project')
 
-            upload_image = ui.upload(max_files=1, auto_upload=True, on_upload=lambda files: handle_upload(files, image_component)).props('label="Load Image" accept="image/*"')
             ui.separator()
+
+            upload_image = ui.upload(max_files=1, auto_upload=True, on_upload=lambda files: handle_upload(files, image_component)).props('label="Load Image" accept="image/*"').classes('w-full')
+
 
             # Filament section
-            ui.markdown('#### Filaments')
-            ui.button('Add Filament', icon='add', on_click=lambda: (filaments.append({'color':'#000000','cover':0.25}), update_filament_list(filament_container))).props('color=secondary')
-            filament_container = ui.column().classes('gap-2')
+            ui.markdown('###### Filaments').classes('text-lg font-bold')
 
-            ui.separator()
+            with ui.card().tight().classes("w-full"):
+
+                with ui.card_section():
+
+                    filament_container = ui.column().classes('gap-2 mb-4')
+                    with filament_container:
+                        ui.markdown('**No filaments added**').classes('text-gray-500')
+
+                    ui.button("Add filament", icon='add', on_click=lambda: (filaments.append({'color': '#000000', 'cover': 0.25}),
+                                                            update_filament_list(filament_container))).props(
+                        'size=sm').tooltip('Add Filament')
 
             # Settings
-            ui.markdown('#### Settings')
-            layer_input = ui.number(label='Layer height (mm)', value=0.2, format='%.2f').props('icon=height')
-            base_input = ui.number(label='Base layers', value=3, format='%d').props('icon=layers')
-            size_input = ui.number(label='Max size (cm)', value=10, format='%.1f').props('icon=straighten')
+            ui.markdown('###### Settings')
+            with ui.card().tight().classes("w-full"):
+                with ui.card_section():
+                    layer_input = ui.number(label='Layer height (mm)', value=0.2, format='%.2f').props('icon=height').props("input-style='width:19rem'")
+                    base_input = ui.number(label='Base layers', value=3, format='%d').props('icon=layers').classes('w-full')
+                    size_input = ui.number(label='Max size (cm)', value=10, format='%.1f').props('icon=straighten').classes('w-full')
 
-            ui.separator()
-            ui.button('Redraw', icon='refresh', on_click=lambda: on_redraw(image_component, progress_bar, spinner)).props('color=primary')
-            ui.button('Export Meshes', icon='download', on_click=lambda: on_export(layer_input, size_input, base_input)).props('color=secondary')
+            quality_mode = ui.toggle(["Fast", "Medium", "Best"], value="Fast").classes("mt-4")
+            with ui.row().classes('items-center gap-2'):
+                ui.button('Redraw', icon='refresh', on_click=lambda: on_redraw(image_component, progress_bar, spinner)).props('color=primary')
+                ui.button('Export STLs', icon='download', on_click=lambda: on_export(layer_input, size_input, base_input)).props('color=secondary')
 
             spinner = ui.spinner()
             spinner.visible = False
@@ -218,9 +254,9 @@ def main():
             progress_bar.visible = False
 
         # Main area
-        with ui.column().classes('flex-auto items-center justify-center p-4'):
+        with ui.column().classes('flex-auto items-center justify-center p-4 overflow-y-auto h-full'):
             placeholder = ui.markdown('**No image loaded**').classes('text-gray-500')
-            image_component = ui.image().style('max-width:100vw; max-height:100vh; object-fit:contain;')
+            image_component = ui.interactive_image(cross='blue')
             image_component.props('fit=scale-down')
             image_component.visible = False
 
@@ -238,4 +274,4 @@ def main():
     ui.dark_mode().enable()
     ui.query('.nicegui-content').classes('p-0')
 
-ui.run(title='Drucken3d NiceGUI', reload=True)
+ui.run(title='Stratum', reload=True)
