@@ -48,14 +48,6 @@ def main():
                 ui.button('Cancel', on_click=lambda: edit_dialog.close())
                 ui.button('Apply', on_click=lambda: apply_edit())
 
-    # Position info floating card (moved from dialog)
-    position_info_card = ui.card().classes('fixed top-4 right-4 z-50 max-w-md').style('display: none; max-height: 80vh; overflow-y: auto;')
-    with position_info_card:
-        with ui.row().classes('items-center justify-between'):
-            ui.markdown('##### Position Information').classes('font-bold mb-2')
-            ui.button('×', on_click=lambda: position_info_card.style('display: none')).props('flat round dense').classes('text-lg')
-        position_info_content = ui.column().classes('gap-2')
-
     def open_edit(idx):
         nonlocal editing_idx
         editing_idx = idx
@@ -111,47 +103,64 @@ def main():
                     for i in range(1, base_input.value):
                         # add all shades from base layers
                         all_shades_present.append(filament_shades[0][0])
-                        shade_labels.append(f"Base, {i + 1}")
+                        shade_labels.append(f"1, {i + 1}")
                         true_colors.append(filament_shades[0][-1])
 
 
                     if all_shades_present:
                         # Create the plot using NiceGUI's matplotlib context manager
-                        plot_height = max(2, len(all_shades_present) * 0.5)
-                        with ui.card().tight():
-                            with ui.matplotlib(figsize=(5, plot_height)).figure as fig:
-                                ax = fig.gca()
+                        plot_height = 3.5
+                        with ui.matplotlib(figsize=(3, plot_height), facecolor=(0,0,0,0)).figure as fig:
+                            ax = fig.gca()
 
-                                # Create horizontal bars for each shade
-                                y_positions = np.arange(len(all_shades_present))
+                            # Create horizontal bars for each shade
+                            y_positions = np.arange(len(all_shades_present))
 
-                                # Normalize colors for matplotlib
-                                shaded_colors_normalized = [(r/255, g/255, b/255) for r, g, b in all_shades_present]
-                                true_colors_normalized = [(r/255, g/255, b/255) for r, g, b in true_colors]
+                            # Normalize colors for matplotlib
+                            shaded_colors_normalized = [(r/255, g/255, b/255) for r, g, b in all_shades_present]
+                            true_colors_normalized = [(r/255, g/255, b/255) for r, g, b in true_colors]
 
-                                # Create two columns of bars - shaded colors (left) and true colors (right)
-                                bar_width = 0.5
-                                bars_shaded = ax.barh(y_positions, [bar_width] * len(all_shades_present),
-                                                    left=[0] * len(all_shades_present),
-                                                    color=shaded_colors_normalized, edgecolor='black', linewidth=0.5,
-                                                    label='calculated color')
+                            # Create two columns of bars - shaded colors (left) and true colors (right)
+                            bar_width = 0.5
+                            bars_shaded = ax.barh(y_positions, [bar_width] * len(all_shades_present),
+                                                left=[0] * len(all_shades_present),
+                                                color=shaded_colors_normalized, edgecolor='black', linewidth=0.5,
+                                                label='calculated color')
 
-                                bars_true = ax.barh(y_positions, [bar_width] * len(all_shades_present),
-                                                  left=[bar_width] * len(all_shades_present),
-                                                  color=true_colors_normalized, edgecolor='black', linewidth=0.5,
-                                                  label='true filament color')
+                            bars_true = ax.barh(y_positions, [bar_width] * len(all_shades_present),
+                                              left=[bar_width] * len(all_shades_present),
+                                              color=true_colors_normalized, edgecolor='black', linewidth=0.5,
+                                              label='true filament color')
 
-                                # Customize the plot
-                                ax.set_yticks(y_positions)
-                                ax.set_yticklabels(shade_labels)
-                                ax.set_xlim(0, 1)
-                                ax.set_xticks([0.25, 0.75])
-                                ax.set_xticklabels(['Shaded', 'True Color'])
+                            # Customize the plot
+                            ax.set_yticks(y_positions)
+                            ax.set_yticklabels(shade_labels)
+                            ax.set_xlim(0, 1)
+                            ax.set_xticks([0.25, 0.75])
+                            ax.set_xticklabels(['Calculated', 'True Color'])
 
-                                # Invert y-axis so bottom layers are at bottom
-                                ax.invert_yaxis()
+                            # background color to transparent, grid, lines, and ticks to white
+                            ax.set_facecolor((0, 0, 0, 0))
+                            ax.spines['top'].set_visible(False)
+                            ax.spines['right'].set_visible(False)
+                            ax.spines['left'].set_color('white')
+                            ax.spines['bottom'].set_visible(False)
+                            ax.tick_params(axis='y', colors='white')
+                            ax.tick_params(axis='x', colors='white')
 
-                                # Add RGB values as text on bars
+                            # set font type
+                            for label in ax.get_xticklabels():
+                                # fancy font (material design)
+                                label.set_fontname('Roboto')
+                            for label in ax.get_yticklabels():
+                                # fancy font (material design)
+                                label.set_fontname('Roboto')
+
+                            # Invert y-axis so bottom layers are at bottom
+                            ax.invert_yaxis()
+
+                            # Add RGB values as text on bars
+                            if len(all_shades_present) <= 15:
                                 for i, (shaded_rgb, true_rgb) in enumerate(zip(all_shades_present, true_colors)):
                                     # Text for shaded color
                                     shaded_text = f"({shaded_rgb[0]}, {shaded_rgb[1]}, {shaded_rgb[2]})"
@@ -165,16 +174,13 @@ def main():
                                            fontweight='bold', fontsize=8,
                                            color='white' if sum(true_rgb) < 384 else 'black')
 
-                                fig.tight_layout()
+                            fig.tight_layout()
 
                 except Exception as e:
                     ui.markdown(f"**Error creating plot:** {str(e)}")
 
             else:
                 ui.markdown("**No material at this position**")
-
-        # Show the floating card instead of opening a dialog
-        position_info_card.style('display: block')
 
     def handle_image_click(e):
         """Handle clicks on the interactive image using simplified RGB analysis"""
@@ -206,17 +212,20 @@ def main():
         for idx, f in enumerate(reversed(filaments)):
             idx = len(filaments) - 1 - idx  # Reverse index to match original order
             with container:
-                with ui.row().classes('items-center gap-2'):
-                    ui.html(
-                        f'''<div style="width: 32px; height:32px; border-radius: 50%; border: 2px lightgray solid; background-color:{f['color']}; "
-                        f"border-radius:50%; border:1px solid #444;"></div>'''
-                    )
-                    #round
-                    ui.button(icon='arrow_upward', on_click=lambda _, i=idx: move_filament(i, i + 1)).props('flat round')
-                    ui.button(icon='arrow_downward', on_click=lambda _, i=idx: move_filament(i, i - 1)).props('flat round')
-                    # Open edit dialog instead of inline inputs
-                    ui.button(icon='edit', on_click=lambda _, i=idx: open_edit(i)).props('flat round')
-                    ui.button(icon='delete', on_click=lambda _, i=idx: remove_filament(i)).props('flat round')
+                with ui.row().classes('items-center gap-2 justify-between'):
+                    # Left side: Color indicator and edit/delete buttons
+                    with ui.row().classes('items-center gap-2'):
+                        ui.html(
+                            f'''<div style="width: 70px; height:24px; border-radius: 3px; border: 1px lightgray solid; background-color:{f['color']};"></div>'''
+                        )
+                        # Open edit dialog instead of inline inputs
+                        ui.button(icon='edit', on_click=lambda _, i=idx: open_edit(i)).props('flat round size=sm')
+                        ui.button(icon='delete', color='red', on_click=lambda _, i=idx: remove_filament(i)).props('flat round size=sm')
+
+                    # Right side: Up/down arrow buttons
+                    with ui.row().classes('items-center gap-1'):
+                        ui.button(icon='arrow_upward', on_click=lambda _, i=idx: move_filament(i, i + 1)).props('flat round size=sm')
+                        ui.button(icon='arrow_downward', on_click=lambda _, i=idx: move_filament(i, i - 1)).props('flat round size=sm')
         if len(filaments) == 0:
             with container:
                ui.markdown('**No filaments added**').classes('text-gray-500')
@@ -279,14 +288,14 @@ def main():
         image_component.set_source(f'data:image/png;base64,{b64}')
         upload_image.reset()
 
-    async def on_redraw(image_component, progress_bar, spinner):
+    async def on_redraw(image_component, progress_bar):
         nonlocal segmented_image, polygons, original_image, rendered_image_size, filament_shades, rendered_image
         if original_image is None or len(filaments) < 2:
             ui.notify('Load image and add at least two filaments', color='red')
             return
         progress_bar.value = 0
         progress_bar.visible = True
-        spinner.visible = True
+
 
         colors = [tuple(int(f['color'][i:i+2], 16) for i in (1,3,5)) for f in filaments]
         covers = [f['cover'] for f in filaments]
@@ -326,7 +335,7 @@ def main():
         img.save(buf, format='PNG')
         data = base64.b64encode(buf.getvalue()).decode()
         image_component.set_source(f'data:image/png;base64,{data}')
-        spinner.visible = False
+
         progress_bar.visible = False
 
     def on_export(layer_in, size_in, base_in):
@@ -336,7 +345,7 @@ def main():
         buf = io.BytesIO()
         progress_bar.value = 0
         progress_bar.visible = True
-        spinner.visible = True
+
         with zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
             meshes = polygons_to_meshes_parallel(
                 segmented_image,
@@ -352,65 +361,86 @@ def main():
                 archive.writestr(f'mesh_{idx}.stl', stl_buf.getvalue())
         buf.seek(0)
         ui.download.content(buf.getvalue(), 'meshes.zip')
-        spinner.visible = False
+
         progress_bar.visible = False
 
     # Build UI
-    with ui.row().classes('w-full h-screen flex-nowrap'):
+    with (ui.row().classes('w-full h-screen flex-nowrap')):
         # Sidebar with logo and controls
-        with ui.column().classes('flex-none w-96 p-6 gap-4 overflow-y-auto h-full bg-gray-800 text-white'):
+        with ui.column().classes('flex-none w-72 gap-4 overflow-y-auto h-full bg-neutral-800 text-white overflow-x-hidden'):
             # New / Open / Save row
-            with ui.row().classes('items-center gap-2'):
-                ui.image('logo.png').classes('w-16 h-16 mr-5')
+            with ui.row().classes('fixed pt-5 p-4 w-72 top-0 left-0 right-0 bg-neutral-900 tems-center gap-2'):
+                ui.image('logo.png').classes('w-10 h-10 mr-4')
 
                 ui.button(icon='note_add', on_click=new_project).props('color=warning').tooltip('New Project')
                 ui.button(icon='folder_open', on_click=lambda: project_dialog.open()).props('color=primary').tooltip('Open Project')
                 ui.button(icon='save', on_click=save_project).props('color=primary').tooltip('Save Project')
 
-            ui.separator()
+            with ui.column().classes('flex-auto p-4 gap-2 w-72 mt-16 mb-32'):
+                ui.markdown('**Filament Management**').classes('mb-0 m-1 text-gray-300')
 
-            upload_image = ui.upload(max_files=1, auto_upload=True, on_upload=lambda files: handle_upload(files, image_component)).props('label="Load Image" accept="image/*"').classes('w-full')
-
-
-            # Filament section
-            ui.markdown('###### Filaments').classes('text-lg font-bold')
-
-            with ui.card().tight().classes("w-full"):
-
-                with ui.card_section():
+                with ui.scroll_area().classes("w-full m-0 p-0 h-72 bg-neutral-900"):
 
                     filament_container = ui.column().classes('gap-2 mb-4')
                     with filament_container:
                         ui.markdown('**No filaments added**').classes('text-gray-500')
 
-                    ui.button("Add filament", icon='add', on_click=lambda: (filaments.append({'color': '#000000', 'cover': 0.25}),
-                                                            update_filament_list(filament_container))).props(
-                        'size=sm').tooltip('Add Filament')
+                # Filament section
+                ui.button("Add filament", icon='add', on_click=lambda: (filaments.append({'color': '#000000', 'cover': 0.25}),
+                                                        update_filament_list(filament_container))).props(
+                    'size=sm').tooltip('Add Filament').classes('w-full')
 
-            # Settings
-            ui.markdown('###### Settings')
-            with ui.card().tight().classes("w-full"):
-                with ui.card_section():
-                    layer_input = ui.number(label='Layer height (mm)', value=0.2, format='%.2f').props('icon=height').props("input-style='width:19rem'")
+                ui.space()
+
+                # Settings
+                with ui.scroll_area().classes("w-full m-0 p-0 h-64 bg-neutral-900"):
+                    layer_input = ui.number(label='Layer height (mm)', value=0.2, format='%.2f').classes('w-full')
                     base_input = ui.number(label='Base layers', value=3, format='%d').props('icon=layers').classes('w-full')
                     size_input = ui.number(label='Max size (cm)', value=10, format='%.1f').props('icon=straighten').classes('w-full')
 
-            quality_mode = ui.toggle(["Fast", "Medium", "Best"], value="Fast").classes("mt-4")
-            with ui.row().classes('items-center gap-2'):
-                ui.button('Redraw', icon='refresh', on_click=lambda: on_redraw(image_component, progress_bar, spinner)).props('color=primary')
-                ui.button('Export STLs', icon='download', on_click=lambda: on_export(layer_input, size_input, base_input)).props('color=secondary')
+            with ui.column().classes("fixed pt-1  p-4 bottom-0 left-0 right-0 bg-neutral-900 border-t border-gray-900 w-72"):
+                quality_mode = ui.toggle(["Fast", "Medium", "Best"], value="Fast").classes("mt-4")
+                with ui.row().classes('items-center gap-2'):
+                    ui.button('Redraw', icon='refresh', on_click=lambda: on_redraw(image_component, progress_bar)).props('color=primary')
+                    ui.button('Export', icon='download', on_click=lambda: on_export(layer_input, size_input, base_input)).props('color=secondary')
 
-            spinner = ui.spinner()
-            spinner.visible = False
-            progress_bar = ui.linear_progress(value=0).style('width:100%')
-            progress_bar.visible = False
+                progress_bar = ui.linear_progress(value=0).style('width:100%')
+                progress_bar.visible = False
 
         # Main area
         with ui.column().classes('flex-auto items-center justify-center p-4 overflow-y-auto h-full'):
-            placeholder = ui.markdown('**No image loaded**').classes('text-gray-500')
+            placeholder = ui.column().classes('items-center justify-center h-full gap-4 w-80').style('display: flex;')
+            with placeholder:
+                ui.markdown('**No image loaded**').classes('text-gray-500')
+                upload_image = ui.upload(max_files=1, auto_upload=True,
+                                         on_upload=lambda files: handle_upload(files, image_component)).props(
+                    'label="Load Image" accept="image/*"').classes('w-full')
+
+
             image_component = ui.interactive_image(cross='blue',events=['mousedown'], on_mouse=handle_image_click).classes('h-full')
             image_component.props('fit=scale-down')
             image_component.visible = False
+
+            with image_component:
+                # add reset image button floatin in the bottom right cornerd
+                def reset_image():
+                    nonlocal original_image, segmented_image, polygons, rendered_image_size, filament_shades, rendered_image
+                    original_image = None
+                    segmented_image = None
+                    polygons = None
+                    rendered_image_size = None
+                    filament_shades = None
+                    rendered_image = None
+                    placeholder.visible = True
+                    image_component.visible = False
+
+                ui.button(icon='cleaning_services', on_click=reset_image).props('flat round').classes(
+                    'fixed bottom-4 right-4 z-50').tooltip('Reset')
+
+        with ui.column().classes('flex-none top-0 right-0 p-4 w-80 h-full overflow-y-auto bg-neutral-900 border-l border-gray-900'):
+            # Position info card
+            position_info_content = ui.column()
+
 
     # Project open dialog
     def on_project_upload(files):
@@ -427,4 +457,4 @@ def main():
     ui.query('.nicegui-content').classes('p-0')
 
 if __name__ in {"__main__", "__mp_main__"}:
-    ui.run(title='Stratum', reload=False, native=True, port=native.find_open_port())
+    ui.run(title='Stratum', reload=True, port=native.find_open_port())
