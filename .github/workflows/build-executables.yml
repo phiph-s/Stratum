@@ -155,13 +155,23 @@ jobs:
     - name: Download all artifacts
       uses: actions/download-artifact@v4
 
+    - name: Determine if pre-release
+      id: prerelease_check
+      run: |
+        TAG_NAME="${GITHUB_REF##*/}"
+        if [[ "$TAG_NAME" == *-* ]]; then
+          echo "is_prerelease=true" >> $GITHUB_OUTPUT
+        else
+          echo "is_prerelease=false" >> $GITHUB_OUTPUT
+        fi
+
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
         files: |
           StratumNG-*-Installer/StratumNG-*-Installer.*
         draft: false
-        prerelease: false
+        prerelease: ${{ steps.prerelease_check.outputs.is_prerelease }}
         generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
