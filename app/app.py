@@ -1,4 +1,4 @@
-from nicegui import ui
+from nicegui import app,ui
 from lib.mask_creation import generate_shades, segment_to_shades
 from PIL import Image
 import io
@@ -14,6 +14,7 @@ from lib.mesh_generator import analyze_position_rgb, create_layered_polygons_par
 class StratumApp:
     def __init__(self):
         # Application state
+        self.native = False
         self.filaments = []
         self.editing_idx = None
         self.original_image = None
@@ -22,6 +23,7 @@ class StratumApp:
         self.rendered_image_size = None
         self.filament_shades = None
         self.rendered_image = None
+        self.last_saved_path = None
 
         # UI components (to be set in build)
         self.cover_input = None
@@ -36,7 +38,10 @@ class StratumApp:
         self.layer_input = None
         self.size_input = None
         self.base_input = None
-        self.quality_mode = None
+        self.resolution_mode = None
+        self.detail_mode = None
+        self.redraw_button = None
+        self.export_button = None
 
     def open_edit(self, idx):
         self.editing_idx = idx
@@ -165,17 +170,50 @@ class StratumApp:
         self.placeholder.visible = True
         self.image_component.visible = False
 
-    def save_project(self):
-        project = {'filaments': self.filaments}
+    async def save_project(self, save_as=False):
+        project = {
+            'filaments': self.filaments,
+            'settings': {
+                'layer_height': float(self.layer_input.value),
+                'base_layers': int(self.base_input.value),
+                'max_size_cm': float(self.size_input.value),
+                'resolution_mode': self.resolution_mode.value,
+                'detail_mode': self.detail_mode.value
+            }
+        }
         if self.original_image:
             buf = io.BytesIO()
             self.original_image.save(buf, format='PNG')
             project['image'] = base64.b64encode(buf.getvalue()).decode()
-        data = json.dumps(project)
-        ui.download.content(data, 'project.json')
 
-    def load_project(self, files):
+        data = json.dumps(project)
+
+        if app.native.main_window:
+            print("Saving project in native mode")
+            import webview
+            if not save_as and self.last_saved_path:
+                file = self.last_saved_path
+            else:
+                result = await app.native.main_window.create_file_dialog(
+                    webview.SAVE_DIALOG, save_filename='project.json'
+                )
+                if not result:
+                    return
+                file = result[0]
+            try:
+                with open(file, 'w') as f:
+                    f.write(data)
+                self.last_saved_path = file
+                ui.notify(f'Project saved to {file}', color='green')
+            except Exception as e:
+                ui.notify(f'Error saving project: {str(e)}', color='red')
+        else: ui.download.content(data, 'project.json')
+
+    def on_upload_project(self, files):
         content = files.content.read().decode()
+        self.load_project(content)
+
+    def load_project(self, content):
         project = json.loads(content)
         self.filaments = project.get('filaments', [])
         self.update_filament_list()
@@ -189,6 +227,12 @@ class StratumApp:
             self.placeholder.visible = False
             self.image_component.visible = True
             self.image_component.set_source(f'data:image/png;base64,{b64}')
+        settings = project.get('settings', {})
+        self.layer_input.value = settings.get('layer_height', 0.2)
+        self.base_input.value = settings.get('base_layers', 3)
+        self.size_input.value = settings.get('max_size_cm', 10.0)
+        self.resolution_mode.value = settings.get('resolution_mode', '◔')
+        self.detail_mode.value = settings.get('detail_mode', '◔')
         self.project_dialog.close()
         ui.notify('Project loaded', color='green')
 
@@ -208,14 +252,26 @@ class StratumApp:
             return
         self.progress_bar.value = 0
         self.progress_bar.visible = True
+        self.redraw_button.disable()
+        self.export_button.disable()
         colors = [tuple(int(f['color'][i:i+2], 16) for i in (1,3,5)) for f in self.filaments]
         covers = [f['cover'] for f in self.filaments]
-        QUALITY_PRESETS = {
-            'Fast': {'min_area': 2, 'simplify_tol': 1.0, 'marching_squares_level': 0.5},
-            'Medium': {'min_area': 0.5, 'simplify_tol': 0.5, 'marching_squares_level': 0.25},
-            'Best':  {'min_area': 0.1, 'simplify_tol': 0.01, 'marching_squares_level': 0.05}
+
+        RES_PRESETS = {
+            '◔': {'simplify_tol': 1.0, 'marching_squares_level': 0.5},
+            '◑': {'simplify_tol': 0.5, 'marching_squares_level': 0.25},
+            '◕':  {'simplify_tol': 0.01, 'marching_squares_level': 0.05},
+            "●": {'simplify_tol': 0.001, 'marching_squares_level': 0.01}
         }
-        min_area, simplify_tol, marching_squares_level = QUALITY_PRESETS[self.quality_mode.value].values()
+        DETAIL_PRESETS = {
+            '◔': {'min_area': 3},
+            '◑': {'min_area': 1},
+            '◕': {'min_area': 0.5},
+            '●': {'min_area': 0.1}
+        }
+        simplify_tol, marching_squares_level = RES_PRESETS[self.resolution_mode.value].values()
+        min_area = DETAIL_PRESETS[self.detail_mode.value]['min_area']
+
         def compute():
             shades = generate_shades(colors, covers)
             segmented = segment_to_shades(self.original_image, shades)
@@ -238,6 +294,8 @@ class StratumApp:
         data = base64.b64encode(buf.getvalue()).decode()
         self.image_component.set_source(f'data:image/png;base64,{data}')
         self.progress_bar.visible = False
+        self.redraw_button.enable()
+        self.export_button.enable()
 
     def on_export(self):
         if not self.polygons:
@@ -263,6 +321,20 @@ class StratumApp:
         ui.download.content(buf.getvalue(), 'meshes.zip')
         self.progress_bar.visible = False
 
+    async def open_project_switch(self):
+        if app.native.main_window:
+            files = await app.native.main_window.create_file_dialog(allow_multiple=False,
+                                                                    file_types=['JSON files (*.json)'])
+            if not files:
+                return
+            file = files[0]
+            with open(file, 'r') as f:
+                content = f.read()
+                self.load_project(content)
+                self.last_saved_path = file
+            return
+        self.project_dialog.open()
+
     def build(self):
         # Edit dialog
         with ui.dialog() as self.edit_dialog:
@@ -277,7 +349,7 @@ class StratumApp:
         with ui.dialog() as self.project_dialog:
             with ui.column():
                 ui.markdown('### Open Project')
-                ui.upload(on_upload=self.load_project, label='Select project JSON', auto_upload=True).props('accept=".json"')
+                ui.upload(on_upload=self.on_upload_project, label='Select project JSON', auto_upload=True).props('accept=".json"')
         # Build main UI
         with ui.row().classes('w-full h-screen flex-nowrap'):
             # Sidebar with logo and controls
@@ -285,9 +357,12 @@ class StratumApp:
                 # New / Open / Save row
                 with ui.row().classes('fixed pt-5 p-4 w-72 top-0 left-0 right-0 bg-neutral-900 items-center gap-2'):
                     ui.image('logo.png').classes('w-10 h-10 mr-4')
-                    ui.button(icon='note_add', on_click=self.new_project).props('color=warning').tooltip('New Project')
-                    ui.button(icon='folder_open', on_click=lambda: self.project_dialog.open()).props('color=primary').tooltip('Open Project')
-                    ui.button(icon='save', on_click=self.save_project).props('color=primary').tooltip('Save Project')
+                    ui.button(icon='note_add', on_click=self.new_project).props('color=warning size=sm padding="7px 7px"').tooltip('New Project')
+                    ui.button(icon='folder_open', on_click=self.open_project_switch).props('color=primary size=sm padding="7px 7px"').tooltip('Open Project')
+                    if app.native.main_window:
+                        with ui.dropdown_button(icon='save', split=True, on_click=self.save_project).props('size=sm padding="7px 7px"'):
+                            ui.button('Save as', on_click=lambda: self.save_project(True)).props('color=primary flat ')
+                    else: ui.button(icon='save', on_click=self.save_project).props('color=primary size=sm padding="7px 7px"').tooltip('Save Project')
                 with ui.column().classes('flex-auto p-4 gap-2 w-72 mt-16 mb-32'):
                     ui.markdown('**Filament Management**').classes('mb-0 m-1 text-gray-300')
                     with ui.scroll_area().classes("w-full m-0 p-0 h-72 bg-neutral-900"):
@@ -300,12 +375,20 @@ class StratumApp:
                         self.layer_input = ui.number(label='Layer height (mm)', value=0.2, format='%.2f').classes('w-full')
                         self.base_input = ui.number(label='Base layers', value=3, format='%d').props('icon=layers').classes('w-full')
                         self.size_input = ui.number(label='Max size (cm)', value=10, format='%.1f').props('icon=straighten').classes('w-full')
-                with ui.column().classes("fixed pt-1 p-4 bottom-0 left-0 right-0 bg-neutral-900 border-t border-gray-900 w-72"):
-                    self.quality_mode = ui.toggle(["Fast", "Medium", "Best"], value="Fast").classes("mt-4")
-                    with ui.row().classes('items-center gap-2'):
-                        ui.button('Redraw', icon='refresh', on_click=lambda: asyncio.create_task(self.on_redraw())).props('color=primary')
-                        ui.button('Export', icon='download', on_click=self.on_export).props('color=secondary')
-                    self.progress_bar = ui.linear_progress(value=0).style('width:100%')
+                with ui.column().classes("fixed pt-1 p-4 bottom-0 gap-0 left-0 right-0 bg-gray-700 border-t border-gray-900 w-72"):
+                    with ui.row().classes("w-full items-center justify-between mt-3"):
+                        ui.markdown('**Details**').classes('ml-1 text-gray-400')
+                        self.detail_mode = ui.toggle(["◔", "◑", "◕", "●"], value="◔").props("size=lg padding='0px 10px'")
+                    with ui.row().classes("w-full items-center justify-between"):
+                        ui.markdown('**Resolution**').classes('mt-2 ml-1 text-gray-400')
+                        self.resolution_mode = ui.toggle(["◔", "◑", "◕", "●"], value="◔").props("size=lg padding='0px 10px'")
+
+
+                    with ui.row().classes('items-center gap-2 mt-2'):
+                        self.redraw_button = ui.button('Redraw', icon='refresh', on_click=lambda: asyncio.create_task(self.on_redraw())).props('color=primary')
+                        self.export_button = ui.button('Export', icon='download', on_click=self.on_export).props('color=secondary')
+                        self.export_button.disable()
+                    self.progress_bar = ui.linear_progress(value=0).style('width:100%').classes("mt-2")
                     self.progress_bar.visible = False
 
             # Main area
@@ -315,7 +398,14 @@ class StratumApp:
                     ui.markdown('**No image loaded**').classes('text-gray-500')
                     self.upload_image = ui.upload(max_files=1, auto_upload=True, on_upload=lambda files: self.handle_upload(files)).props(
                         'label="Load Image" accept="image/*"').classes('w-full')
-                self.image_component = ui.interactive_image(cross='blue', events=['mousedown'], on_mouse=lambda e: self.handle_image_click(e)).classes('h-full')
+
+                    # floating tutorial in bottom left corner
+                    infotext_start = ui.column().classes('absolute bottom-4 left-80 text-gray-500 text-sm')
+                    with infotext_start:
+                        # arrow to the left
+                        ui.icon('arrow_right').classes('text-gray-500 text-2xl')
+
+                self.image_component = ui.interactive_image(cross='blue', events=['mousedown'], on_mouse=lambda e: self.handle_image_click(e)).classes('max-h-full')
                 self.image_component.props('fit=scale-down')
                 self.image_component.visible = False
 

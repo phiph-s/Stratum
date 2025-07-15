@@ -8,10 +8,11 @@ multiprocessing.set_start_method("spawn", force=True)
 from nicegui import ui
 from app.app import StratumApp
 
+
 @ui.page('/')
 def main_page():
     app = StratumApp()
     app.build()
 
 if __name__ in {"__main__", "__mp_main__"}:
-    ui.run()
+    ui.run(native=False)
