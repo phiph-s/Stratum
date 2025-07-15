@@ -14,8 +14,7 @@ def main_page():
     sapp = StratumApp()
     sapp.build()
 
-if __name__ in {"__main__", "__mp_main__"}:
-    # setup native app
-    app.native.window_args['resizable'] = False
-    ui.run(native=True, window_size=(1480, 900))
-    #ui.run(native=False)
+# setup native app
+app.native.window_args['resizable'] = False
+ui.run(native=True, window_size=(1480, 900))
+#ui.run(native=False)
