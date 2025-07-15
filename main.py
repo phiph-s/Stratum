@@ -1,4 +1,8 @@
-from nicegui import ui, app
+# macOS packaging support
+from multiprocessing import freeze_support  # noqa
+freeze_support()  # noqa
+
+from nicegui import ui, native
 
 from lib.mask_creation import generate_shades, segment_to_shades
 from lib.mesh_generator import (
@@ -14,6 +18,9 @@ import base64
 import zipfile
 import json
 
+import multiprocessing
+multiprocessing.set_start_method("spawn", force=True)
+
 @ui.page('/')
 def main():
     # Application state
@@ -26,6 +33,7 @@ def main():
     editing_idx = None
     quality_mode = None
     size_input = None
+    base_input = None
     rendered_image_size = None  # Store rendered image dimensions
     filament_shades = None  # Store current shades
     rendered_image = None  # Store the rendered PIL image for RGB analysis
@@ -40,13 +48,13 @@ def main():
                 ui.button('Cancel', on_click=lambda: edit_dialog.close())
                 ui.button('Apply', on_click=lambda: apply_edit())
 
-    # Position info dialog
-    with ui.dialog() as position_dialog:
-        with ui.card():
-            ui.markdown('#### Position Information')
-            position_info_content = ui.column().classes('gap-2')
-            with ui.row().classes('justify-end'):
-                ui.button('Close', on_click=lambda: position_dialog.close())
+    # Position info floating card (moved from dialog)
+    position_info_card = ui.card().classes('fixed top-4 right-4 z-50 max-w-md').style('display: none; max-height: 80vh; overflow-y: auto;')
+    with position_info_card:
+        with ui.row().classes('items-center justify-between'):
+            ui.markdown('##### Position Information').classes('font-bold mb-2')
+            ui.button('×', on_click=lambda: position_info_card.style('display: none')).props('flat round dense').classes('text-lg')
+        position_info_content = ui.column().classes('gap-2')
 
     def open_edit(idx):
         nonlocal editing_idx
@@ -66,7 +74,7 @@ def main():
         edit_dialog.close()
 
     def show_position_info(analysis_result):
-        """Display detailed position analysis in a dialog with enhanced visualization"""
+        """Display detailed position analysis in a floating card with enhanced visualization"""
         position_info_content.clear()
         print(analysis_result)
         with position_info_content:
@@ -99,6 +107,12 @@ def main():
                             all_shades_present.append(filament_shades[i][j])
                             shade_labels.append(f"{i + 1}, {j + 1}")
                             true_colors.append(filament_shades[i][-1])
+
+                    for i in range(1, base_input.value):
+                        # add all shades from base layers
+                        all_shades_present.append(filament_shades[0][0])
+                        shade_labels.append(f"Base, {i + 1}")
+                        true_colors.append(filament_shades[0][-1])
 
 
                     if all_shades_present:
@@ -159,7 +173,8 @@ def main():
             else:
                 ui.markdown("**No material at this position**")
 
-        position_dialog.open()
+        # Show the floating card instead of opening a dialog
+        position_info_card.style('display: block')
 
     def handle_image_click(e):
         """Handle clicks on the interactive image using simplified RGB analysis"""
@@ -411,4 +426,5 @@ def main():
     ui.dark_mode().enable()
     ui.query('.nicegui-content').classes('p-0')
 
-ui.run(title='Stratum', reload=True)
+if __name__ in {"__main__", "__mp_main__"}:
+    ui.run(title='Stratum', reload=False, native=True, port=native.find_open_port())

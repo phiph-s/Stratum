@@ -7,3 +7,4 @@ shapely
 trimesh
 geopandas
 matplotlib
+pywebview[qt]

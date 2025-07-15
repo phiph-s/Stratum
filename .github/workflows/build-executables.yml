@@ -1,0 +1,161 @@
+name: Build Executables
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        include:
+          - os: windows-latest
+            artifact_name: StratumNG-Windows
+            executable_extension: .exe
+          - os: ubuntu-latest
+            artifact_name: StratumNG-Linux
+            executable_extension: ""
+          - os: macos-latest
+            artifact_name: StratumNG-macOS
+            executable_extension: .app
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install system dependencies (Ubuntu)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libegl1-mesa-dev \
+          libgl1-mesa-dev \
+          libglib2.0-0 \
+          libxkbcommon-x11-0 \
+          libxcb-icccm4 \
+          libxcb-image0 \
+          libxcb-keysyms1 \
+          libxcb-randr0 \
+          libxcb-render-util0 \
+          libxcb-xinerama0 \
+          libxcb-shape0 \
+          libxcb-cursor0
+
+    - name: Install system dependencies (macOS)
+      if: matrix.os == 'macos-latest'
+      run: |
+        # Install any macOS specific dependencies if needed
+        echo "Installing macOS dependencies..."
+
+    - name: Create virtual environment
+      run: |
+        python -m venv venv
+
+    - name: Activate virtual environment (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        .\venv\Scripts\activate
+        echo "VIRTUAL_ENV=$env:VIRTUAL_ENV" >> $env:GITHUB_ENV
+        echo "$env:VIRTUAL_ENV\Scripts" >> $env:GITHUB_PATH
+
+    - name: Activate virtual environment (Unix)
+      if: matrix.os != 'windows-latest'
+      run: |
+        source venv/bin/activate
+        echo "VIRTUAL_ENV=$VIRTUAL_ENV" >> $GITHUB_ENV
+        echo "$VIRTUAL_ENV/bin" >> $GITHUB_PATH
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+
+    - name: Build executable (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        python -m nicegui pack --onefile --windowed --name "StratumNG" main.py
+
+    - name: Build executable (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        python -m nicegui pack --onefile --windowed --name "StratumNG" main.py
+
+    - name: Build executable (macOS)
+      if: matrix.os == 'macos-latest'
+      run: |
+        python -m nicegui pack --onefile --windowed --name "StratumNG" main.py
+
+    - name: Copy assets to dist (All platforms)
+      run: |
+        cp logo.png dist/ || true
+        cp README.md dist/ || true
+
+    - name: Create installer package (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        # Create a simple ZIP package for Windows
+        cd dist
+        7z a ../StratumNG-Windows-Installer.zip *
+        cd ..
+
+    - name: Create installer package (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        # Create a tarball for Linux
+        cd dist
+        tar -czf ../StratumNG-Linux-Installer.tar.gz *
+        cd ..
+
+    - name: Create installer package (macOS)
+      if: matrix.os == 'macos-latest'
+      run: |
+        # Create a DMG for macOS (simplified approach)
+        cd dist
+        zip -r ../StratumNG-macOS-Installer.zip *
+        cd ..
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: ${{ matrix.artifact_name }}
+        path: |
+          dist/
+          StratumNG-*-Installer.*
+
+    - name: Upload installer packages
+      uses: actions/upload-artifact@v3
+      with:
+        name: ${{ matrix.artifact_name }}-Installer
+        path: StratumNG-*-Installer.*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v3
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          StratumNG-*-Installer/StratumNG-*-Installer.*
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
