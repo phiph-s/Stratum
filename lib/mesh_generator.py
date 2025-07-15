@@ -147,6 +147,7 @@ def merge_layers_downward(meshes_list):
     """
     last = None
     for i, meshes in enumerate(meshes_list[::-1]):
+        if i == len(meshes_list) - 1: continue
         for j, mesh in enumerate(meshes[::-1]):
             if last is None:
                 last = mesh
