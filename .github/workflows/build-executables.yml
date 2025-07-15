@@ -127,7 +127,7 @@ jobs:
         cd ..
 
     - name: Upload build artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.artifact_name }}
         path: |
@@ -135,7 +135,7 @@ jobs:
           StratumNG-*-Installer.*
 
     - name: Upload installer packages
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.artifact_name }}-Installer
         path: StratumNG-*-Installer.*
@@ -147,7 +147,7 @@ jobs:
 
     steps:
     - name: Download all artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
 
     - name: Create Release
       uses: softprops/action-gh-release@v1
