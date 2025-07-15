@@ -1,17 +1,15 @@
 from nicegui import ui
 from lib.mask_creation import generate_shades, segment_to_shades
-from lib.mesh_generator import (
-    create_layered_polygons_parallel,
-    render_polygons_to_pil_image,
-    polygons_to_meshes_parallel,
-    analyze_position_rgb
-)
 from PIL import Image
 import io
 import asyncio
 import base64
 import zipfile
 import json
+
+from lib.mesh_generator import analyze_position_rgb, create_layered_polygons_parallel, render_polygons_to_pil_image, \
+    polygons_to_meshes_parallel
+
 
 class StratumApp:
     def __init__(self):
