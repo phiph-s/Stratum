@@ -5,14 +5,16 @@ freeze_support()  # noqa
 import multiprocessing
 multiprocessing.set_start_method("spawn", force=True)
 
-from nicegui import ui
+from nicegui import ui, app
 from app.app import StratumApp
 
 
 @ui.page('/')
 def main_page():
-    app = StratumApp()
-    app.build()
+    sapp = StratumApp()
+    sapp.build()
 
 if __name__ in {"__main__", "__mp_main__"}:
-    ui.run(native=False)
+    # setup native app
+    app.native.window_args['resizable'] = False
+    ui.run(native=True, window_size=(1480, 900))

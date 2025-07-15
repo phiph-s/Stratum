@@ -363,33 +363,41 @@ class StratumApp:
                         with ui.dropdown_button(icon='save', split=True, on_click=self.save_project).props('size=sm padding="7px 7px"'):
                             ui.button('Save as', on_click=lambda: self.save_project(True)).props('color=primary flat ')
                     else: ui.button(icon='save', on_click=self.save_project).props('color=primary size=sm padding="7px 7px"').tooltip('Save Project')
-                with ui.column().classes('flex-auto p-4 gap-2 w-72 mt-16 mb-32'):
-                    ui.markdown('**Filament Management**').classes('mb-0 m-1 text-gray-300')
-                    with ui.scroll_area().classes("w-full m-0 p-0 h-72 bg-neutral-900"):
+                with ui.column().classes('flex-auto gap-0 w-72 mt-16'):
+                    ui.markdown('**Filament Management**').classes('mb-0 m-1 mt-5 text-gray-300 w-full text-center')
+                    # expand able scroll area for filaments
+                    with ui.scroll_area().classes("w-full m-0 p-0 bg-neutral-900 flex-auto"):
                         self.filament_container = ui.column().classes('gap-2 mb-4')
                         with self.filament_container:
                             ui.markdown('**No filaments added**').classes('text-gray-500')
-                    ui.button("Add filament", icon='add', on_click=self.add_filament).props('size=sm').tooltip('Add Filament').classes('w-full')
-                    ui.space()
-                    with ui.scroll_area().classes("w-full m-0 p-0 h-64 bg-neutral-900"):
-                        self.layer_input = ui.number(label='Layer height (mm)', value=0.2, format='%.2f').classes('w-full')
-                        self.base_input = ui.number(label='Base layers', value=3, format='%d').props('icon=layers').classes('w-full')
-                        self.size_input = ui.number(label='Max size (cm)', value=10, format='%.1f').props('icon=straighten').classes('w-full')
-                with ui.column().classes("fixed pt-1 p-4 bottom-0 gap-0 left-0 right-0 bg-gray-700 border-t border-gray-900 w-72"):
-                    with ui.row().classes("w-full items-center justify-between mt-3"):
-                        ui.markdown('**Details**').classes('ml-1 text-gray-400')
-                        self.detail_mode = ui.toggle(["◔", "◑", "◕", "●"], value="◔").props("size=lg padding='0px 10px'")
-                    with ui.row().classes("w-full items-center justify-between"):
-                        ui.markdown('**Resolution**').classes('mt-2 ml-1 text-gray-400')
-                        self.resolution_mode = ui.toggle(["◔", "◑", "◕", "●"], value="◔").props("size=lg padding='0px 10px'")
+                    ui.button("Add filament", icon='add', on_click=self.add_filament).props('size=sm').tooltip('Add Filament').classes('w-full mb-6')
+
+                    with ui.column().classes("bg-gray-700 border-t border-gray-900 w-72 flex-none"):
+                        with ui.column().classes("pt-1 pb-0 p-4 gap-0"):
+                            with ui.row().classes("w-full items-center justify-between mt-3"):
+                                ui.markdown('**Details**').classes('ml-1 text-gray-400')
+                                self.detail_mode = ui.toggle(["◔", "◑", "◕", "●"], value="◔").props("size=lg padding='0px 10px'")
+                            with ui.row().classes("w-full items-center justify-between"):
+                                ui.markdown('**Resolution**').classes('mt-2 ml-1 text-gray-400')
+                                self.resolution_mode = ui.toggle(["◔", "◑", "◕", "●"], value="◔").props("size=lg padding='0px 10px'")
 
 
-                    with ui.row().classes('items-center gap-2 mt-2'):
-                        self.redraw_button = ui.button('Redraw', icon='refresh', on_click=lambda: asyncio.create_task(self.on_redraw())).props('color=primary')
-                        self.export_button = ui.button('Export', icon='download', on_click=self.on_export).props('color=secondary')
-                        self.export_button.disable()
-                    self.progress_bar = ui.linear_progress(value=0).style('width:100%').classes("mt-2")
-                    self.progress_bar.visible = False
+                            with ui.row().classes('items-center gap-2 mt-2'):
+                                self.redraw_button = ui.button('Redraw', icon='refresh', on_click=lambda: asyncio.create_task(self.on_redraw())).props('color=primary')
+                                self.export_button = ui.button('Export', icon='download', on_click=self.on_export).props('color=secondary')
+                                self.export_button.disable()
+                            self.progress_bar = ui.linear_progress(value=0).style('width:100%').classes("mt-2")
+                            self.progress_bar.visible = False
+
+                        with ui.expansion('Export settings', icon='settings').classes('bg-gray-700 border-t border-gray-900 w-72 p-0'):
+                            self.layer_input = ui.number(label='Layer height (mm)', value=0.12, format='%.2f', step=0.02, min=0.001, max=10).classes(
+                                'w-full')
+                            self.base_input = ui.number(label='Base layers', value=3, format='%d', min=1, max=999).props(
+                                'icon=layers').classes('w-full')
+                            self.size_input = ui.number(label='Max size (cm)', value=10, format='%.1f', min=0.1, max=1000000).props(
+                                'icon=straighten').classes('w-full')
+
+
 
             # Main area
             with ui.column().classes('flex-auto items-center justify-center p-4 overflow-y-auto h-full'):
