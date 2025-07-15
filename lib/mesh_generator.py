@@ -61,6 +61,7 @@ def extract_color_masks(img_arr, filament_shades):
         dict: A dictionary mapping (filament_index, shade_index) to a boolean mask.
     """
     rgb = img_arr[..., :3]
+    alpha = img_arr[..., 3:]
     masks = {}
 
     used_shades = set()  # to track used shades, prevent duplicates
@@ -70,10 +71,15 @@ def extract_color_masks(img_arr, filament_shades):
                 print(f"Skipping duplicate shade {shade} for filament {fi}, shade {si}")
                 continue
             # exact match on RGB channels
-            m = np.all(rgb == shade, axis=2)
-            if m.any():
-                masks[(fi, si)] = m
-                used_shades.add(shade)
+            if fi != 0: m = np.all(rgb == shade, axis=2)
+            else: m = np.all(alpha != 0, axis=2)
+            masks[(fi, si)] = m
+            used_shades.add(shade)
+
+    alpha_mask = img_arr[..., 3] == 0
+    for key in list(masks.keys()):
+        masks[key] = masks[key] & ~alpha_mask
+
     return masks
 
 
@@ -221,12 +227,11 @@ def create_layered_polygons_parallel(
     The progress callback is called directly and is not tied to any GUI framework.
     """
     ensure_dir(OUTPUT_DIR)
-    w_px, h_px = segmented_image.size
     seg_arr = np.array(segmented_image.convert("RGBA"))
 
     masks = extract_color_masks(seg_arr, shades)
     counts_map = {}
-    for fi in range(1, len(shades)):
+    for fi in range(len(shades)):
         cnt = np.zeros(seg_arr.shape[:2], dtype=int)
         for si in range(len(shades[fi])):
             m = masks.get((fi, si))
@@ -236,7 +241,7 @@ def create_layered_polygons_parallel(
 
     h_px = seg_arr.shape[0]
     tasks = []
-    for fi in range(1, len(shades)):
+    for fi in range(len(shades)):
         cnt = counts_map[fi]
         for L in range(1, len(np.unique(cnt)) + 1):
             mask_L = cnt >= L
@@ -261,14 +266,10 @@ def create_layered_polygons_parallel(
         polys_map.setdefault(fi, {})[L] = polys
 
     polys_list = []
-    for fi in range(1, len(shades)):
+    for fi in range(len(shades)):
         poly_list = [polys_map.get(fi, {}).get(L, []) for L in range(1, len(shades[fi]) + 1)]
         if any(poly_list):
             polys_list.append(poly_list)
-
-    base = Polygon([(0, 0), (w_px, 0), (w_px, h_px), (0, h_px)])
-    base = flip_polygons_vertically([base], h_px)[0]
-    polys_list.insert(0, [[base]])
 
     return polys_list
 
@@ -323,22 +324,25 @@ def polygons_to_meshes_parallel(segmented_image,
             meshes_list.append(sublayers)
 
     merge_layers_downward(meshes_list)
-    base_mesh, base_height = _generate_base_mesh(
-        segmented_image, layer_height, base_layers, target_max_cm
-    )
 
     w_px, h_px = segmented_image.size
+    meshes = []
     scale_xy = (target_max_cm * 10) / max(w_px, h_px)
-    meshes = [base_mesh] if base_mesh else []
-    current_z0 = base_height
-    for layer in meshes_list:
+    current_z0 = 0
+
+    for i, layer in enumerate(meshes_list):
+
+        z_scale = 1.0
+        if i == 0:
+            z_scale = base_layers
+
         for m in layer:
             m.apply_translation([0, 0, current_z0])
             if not m.is_empty:
-                current_z0 += layer_height
+                current_z0 += layer_height * z_scale
 
         combined = trimesh.util.concatenate(layer)
-        combined.apply_scale([scale_xy, scale_xy, 1])
+        combined.apply_scale([scale_xy, scale_xy, z_scale])
         meshes.append(combined)
 
     if progress_cb: progress_cb(1.0)
@@ -351,7 +355,7 @@ def render_polygons_to_pil_image(
         filament_shades,
         image_size,
         max_size=10.0,  # Maximum dimension in cm
-        bg_color='white',  # Use solid background for pixel-perfect RGB
+        bg_color='none',  # Use solid background for pixel-perfect RGB
         font_color=(1, 1, 1),
         progress_cb=None,
 ) -> Image.Image:
@@ -450,15 +454,15 @@ def render_polygons_to_pil_image(
     # Export to PNG without any compression or antialiasing for pixel-perfect RGB
     buf = io.BytesIO()
     fig.savefig(buf, format='png', dpi=dpi, bbox_inches='tight', pad_inches=0,
-                facecolor=bg_color, edgecolor='none', transparent=False)
+                facecolor=bg_color, edgecolor='none', transparent=bg_color == 'none')
     plt.close(fig)
     buf.seek(0)
 
     img = Image.open(buf)
 
     # Convert to RGB mode to ensure exact RGB values
-    if img.mode != 'RGB':
-        img = img.convert('RGB')
+    if img.mode != 'RGBA':
+        img = img.convert('RGBA')
 
     # Ensure the image has the exact target dimensions by resizing if needed
     if img.size != (render_w, render_h):

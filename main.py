@@ -148,14 +148,6 @@ def main():
                             ax.tick_params(axis='y', colors='white')
                             ax.tick_params(axis='x', colors='white')
 
-                            # set font type
-                            for label in ax.get_xticklabels():
-                                # fancy font (material design)
-                                label.set_fontname('Roboto')
-                            for label in ax.get_yticklabels():
-                                # fancy font (material design)
-                                label.set_fontname('Roboto')
-
                             # Invert y-axis so bottom layers are at bottom
                             ax.invert_yaxis()
 
@@ -268,7 +260,7 @@ def main():
         img_data = project.get('image')
         if img_data:
             img_bytes = base64.b64decode(img_data)
-            original_image = Image.open(io.BytesIO(img_bytes)).convert('RGB')
+            original_image = Image.open(io.BytesIO(img_bytes)).convert('RGBA')
             buf = io.BytesIO()
             original_image.save(buf, format='PNG')
             b64 = base64.b64encode(buf.getvalue()).decode()
@@ -279,7 +271,7 @@ def main():
 
     def handle_upload(files, image_component):
         nonlocal original_image
-        original_image = Image.open(files.content).convert('RGB')
+        original_image = Image.open(files.content).convert('RGBA')
         buf = io.BytesIO()
         original_image.save(buf, format='PNG')
         b64 = base64.b64encode(buf.getvalue()).decode()
@@ -349,7 +341,7 @@ def main():
         with zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
             meshes = polygons_to_meshes_parallel(
                 segmented_image,
-                polygons[1:],
+                polygons,
                 layer_height=float(layer_in.value),
                 target_max_cm=float(size_in.value),
                 base_layers=int(base_in.value),
