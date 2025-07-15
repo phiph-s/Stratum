@@ -254,23 +254,45 @@ class StratumApp:
         self.progress_bar.visible = True
         self.redraw_button.disable()
         self.export_button.disable()
-        colors = [tuple(int(f['color'][i:i+2], 16) for i in (1,3,5)) for f in self.filaments]
+        colors = [tuple(int(f['color'][i:i + 2], 16) for i in (1, 3, 5)) for f in self.filaments]
         covers = [f['cover'] for f in self.filaments]
 
-        RES_PRESETS = {
+        # Calculate resolution scale factor based on image size
+        img_width, img_height = self.original_image.size
+        total_pixels = img_width * img_height
+        # Base scale on 1000x1000 image (1M pixels)
+        base_pixels = 1000 * 1000
+        resolution_scale = (total_pixels / base_pixels) ** 0.5  # Square root for better scaling
+
+        # Base presets (for 1000x1000 image)
+        BASE_RES_PRESETS = {
             '◔': {'simplify_tol': 1.0, 'marching_squares_level': 0.5},
             '◑': {'simplify_tol': 0.5, 'marching_squares_level': 0.25},
-            '◕':  {'simplify_tol': 0.01, 'marching_squares_level': 0.05},
+            '◕': {'simplify_tol': 0.01, 'marching_squares_level': 0.05},
             "●": {'simplify_tol': 0.001, 'marching_squares_level': 0.01}
         }
-        DETAIL_PRESETS = {
+        BASE_DETAIL_PRESETS = {
             '◔': {'min_area': 3},
             '◑': {'min_area': 1},
             '◕': {'min_area': 0.5},
             '●': {'min_area': 0.1}
         }
-        simplify_tol, marching_squares_level = RES_PRESETS[self.resolution_mode.value].values()
-        min_area = DETAIL_PRESETS[self.detail_mode.value]['min_area']
+
+        # Scale presets based on image resolution
+        base_res = BASE_RES_PRESETS[self.resolution_mode.value]
+        base_detail = BASE_DETAIL_PRESETS[self.detail_mode.value]
+
+        # Scale tolerances - smaller for higher resolution
+        simplify_tol = base_res['simplify_tol'] / resolution_scale
+        marching_squares_level = base_res['marching_squares_level'] / resolution_scale
+
+        # Scale min_area - larger for higher resolution to avoid tiny artifacts
+        min_area = base_detail['min_area'] * resolution_scale
+
+        # Clamp values to reasonable ranges
+        simplify_tol = max(0.001, min(10.0, simplify_tol))
+        marching_squares_level = max(0.005, min(1.0, marching_squares_level))
+        min_area = max(0.01, min(100.0, min_area))
 
         def compute():
             shades = generate_shades(colors, covers)
@@ -364,13 +386,14 @@ class StratumApp:
                             ui.button('Save as', on_click=lambda: self.save_project(True)).props('color=primary flat ')
                     else: ui.button(icon='save', on_click=self.save_project).props('color=primary size=sm padding="7px 7px"').tooltip('Save Project')
                 with ui.column().classes('flex-auto gap-0 w-72 mt-16'):
-                    ui.markdown('**Filament Management**').classes('mb-0 m-1 mt-5 text-gray-300 w-full text-center')
+                    with ui.row().classes('items-center justify-between mb-2 mt-6 ml-4'):
+                        ui.markdown('**Filament List**').classes('text-gray-300')
+                        ui.button(icon='add', on_click=self.add_filament).props('size=sm round flat').tooltip('Add Filament')
                     # expand able scroll area for filaments
                     with ui.scroll_area().classes("w-full m-0 p-0 bg-neutral-900 flex-auto"):
                         self.filament_container = ui.column().classes('gap-2 mb-4')
                         with self.filament_container:
                             ui.markdown('**No filaments added**').classes('text-gray-500')
-                    ui.button("Add filament", icon='add', on_click=self.add_filament).props('size=sm').tooltip('Add Filament').classes('w-full mb-6')
 
                     with ui.column().classes("bg-gray-700 border-t border-gray-900 w-72 flex-none"):
                         with ui.column().classes("pt-1 pb-0 p-4 gap-0"):

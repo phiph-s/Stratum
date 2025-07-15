@@ -27,7 +27,7 @@ def render_polygons_to_pil_image(
     Args:
         max_size: The real-world size in cm of the longest dimension
     """
-    target_pixels = 2048
+    target_pixels = 4096  # Target pixel size for the longest side
     if image_size[0] > image_size[1]:
         render_w = target_pixels
         render_h = int((image_size[1] / image_size[0]) * target_pixels)
