@@ -1,4 +1,5 @@
 # macOS packaging support
+import sys
 from multiprocessing import freeze_support  # noqa
 freeze_support()  # noqa
 
@@ -14,6 +15,7 @@ def main_page():
     sapp = StratumApp()
     sapp.build()
 
-# setup native app
+# --browser
+if '--browser' in sys.argv:
+    ui.run(native=False, reload=True)
 ui.run(native=True, window_size=(1480, 900), reload=False)
-#ui.run(native=False)

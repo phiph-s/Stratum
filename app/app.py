@@ -6,6 +6,7 @@ import asyncio
 import base64
 import zipfile
 import json
+import matplotlib.backends.backend_svg
 
 from lib.mesh_generator import analyze_position_rgb, create_layered_polygons_parallel, render_polygons_to_pil_image, \
     polygons_to_meshes_parallel
@@ -319,7 +320,7 @@ class StratumApp:
         self.redraw_button.enable()
         self.export_button.enable()
 
-    def on_export(self):
+    async def on_export(self):
         if not self.polygons:
             ui.notify('Nothing to export', color='red')
             return
@@ -340,7 +341,22 @@ class StratumApp:
                 mesh.export(file_obj=stl_buf, file_type='stl')
                 archive.writestr(f'mesh_{idx}.stl', stl_buf.getvalue())
         buf.seek(0)
-        ui.download.content(buf.getvalue(), 'meshes.zip')
+        if app.native.main_window:
+            print("Exporting meshes in native mode")
+            import webview
+            result = await app.native.main_window.create_file_dialog(
+                webview.SAVE_DIALOG, save_filename='meshes.zip'
+            )
+            if not result:
+                return
+            file = result[0]
+            try:
+                with open(file, 'wb') as f:
+                    f.write(buf.getvalue())
+                ui.notify(f'Meshes exported to {file}', color='green')
+            except Exception as e:
+                ui.notify(f'Error exporting meshes: {str(e)}', color='red')
+        else: ui.download.content(buf.getvalue(), 'meshes.zip')
         self.progress_bar.visible = False
 
     async def open_project_switch(self):
@@ -375,9 +391,9 @@ class StratumApp:
         # Build main UI
         with ui.row().classes('w-full h-screen flex-nowrap'):
             # Sidebar with logo and controls
-            with ui.column().classes('flex-none w-72 gap-4 overflow-y-auto h-full bg-neutral-800 text-white overflow-x-hidden'):
+            with ui.column().classes('flex-none w-64 gap-4 overflow-y-auto h-full bg-neutral-800 text-white overflow-x-hidden'):
                 # New / Open / Save row
-                with ui.row().classes('fixed pt-5 p-4 w-72 top-0 left-0 right-0 bg-neutral-900 items-center gap-2'):
+                with ui.row().classes('fixed pt-5 p-4 w-64 top-0 left-0 right-0 bg-neutral-900 items-center gap-2'):
                     ui.image('logo.png').classes('w-10 h-10 mr-4')
                     ui.button(icon='note_add', on_click=self.new_project).props('color=warning size=sm padding="7px 7px"').tooltip('New Project')
                     ui.button(icon='folder_open', on_click=self.open_project_switch).props('color=primary size=sm padding="7px 7px"').tooltip('Open Project')
@@ -385,7 +401,7 @@ class StratumApp:
                         with ui.dropdown_button(icon='save', split=True, on_click=self.save_project).props('size=sm padding="7px 7px"'):
                             ui.button('Save as', on_click=lambda: self.save_project(True)).props('color=primary flat ')
                     else: ui.button(icon='save', on_click=self.save_project).props('color=primary size=sm padding="7px 7px"').tooltip('Save Project')
-                with ui.column().classes('flex-auto gap-0 w-72 mt-16'):
+                with ui.column().classes('flex-auto gap-0 w-64 mt-16'):
                     with ui.row().classes('items-center justify-between mb-2 mt-6 ml-4'):
                         ui.markdown('**Filament List**').classes('text-gray-300')
                         ui.button(icon='add', on_click=self.add_filament).props('size=sm round flat').tooltip('Add Filament')
@@ -395,7 +411,7 @@ class StratumApp:
                         with self.filament_container:
                             ui.markdown('**No filaments added**').classes('text-gray-500')
 
-                    with ui.column().classes("bg-gray-700 border-t border-gray-900 w-72 flex-none"):
+                    with ui.column().classes("bg-gray-700 border-t border-gray-900  w-64 flex-none"):
                         with ui.column().classes("pt-1 pb-0 p-4 gap-0"):
                             with ui.row().classes("w-full items-center justify-between mt-3"):
                                 ui.markdown('**Details**').classes('ml-1 text-gray-400')
@@ -405,14 +421,14 @@ class StratumApp:
                                 self.resolution_mode = ui.toggle(["◔", "◑", "◕", "●"], value="◔").props("size=lg padding='0px 10px'")
 
 
-                            with ui.row().classes('items-center gap-2 mt-2'):
-                                self.redraw_button = ui.button('Redraw', icon='refresh', on_click=lambda: asyncio.create_task(self.on_redraw())).props('color=primary')
-                                self.export_button = ui.button('Export', icon='download', on_click=self.on_export).props('color=secondary')
+                            with ui.row().classes('items-center mt-2 justify-center'):
+                                self.redraw_button = ui.button('Redraw', icon='refresh', on_click=lambda: asyncio.create_task(self.on_redraw())).props('color=primary size=sm')
+                                self.export_button = ui.button('Export', icon='download', on_click=self.on_export).props('color=secondary size=sm')
                                 self.export_button.disable()
                             self.progress_bar = ui.linear_progress(value=0).style('width:100%').classes("mt-2")
                             self.progress_bar.visible = False
 
-                        with ui.expansion('Export settings', icon='settings').classes('bg-gray-700 border-t border-gray-900 w-72 p-0'):
+                        with ui.expansion('Export settings', icon='settings').classes('bg-gray-700 border-t border-gray-900  w-64 p-0'):
                             self.layer_input = ui.number(label='Layer height (mm)', value=0.12, format='%.2f', step=0.02, min=0.001, max=10).classes(
                                 'w-full')
                             self.base_input = ui.number(label='Base layers', value=3, format='%d', min=1, max=999).props(
@@ -454,7 +470,7 @@ class StratumApp:
                     ui.button(icon='cleaning_services', on_click=reset_image).props('flat round').classes('fixed bottom-4 right-4 z-50').tooltip('Reset')
 
             # Position info card
-            with ui.column().classes('flex-none top-0 right-0 p-4 w-80 h-full overflow-y-auto bg-neutral-900 border-l border-gray-900'):
+            with ui.column().classes('flex-none top-0 right-0 p-4 w-72 h-full overflow-y-auto bg-neutral-900 border-l border-gray-900'):
                 self.position_info_content = ui.column()
 
         # Enable dark mode and adjust padding

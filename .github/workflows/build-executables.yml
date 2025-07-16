@@ -91,6 +91,12 @@ jobs:
         pip install --no-cache-dir nicegui[pack]
       timeout-minutes: 10
 
+    - name: Install pywebview[qt] (Linux only)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        pip install --no-cache-dir pywebview[qt]
+      timeout-minutes: 10
+
     - name: Build executable (Windows)
       if: matrix.os == 'windows-latest'
       run: |
