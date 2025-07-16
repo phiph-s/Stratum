@@ -1,7 +1,6 @@
 from nicegui import app,ui
 from lib.mask_creation import generate_shades, segment_to_shades
 from lib.filament_manager import FilamentManager
-from lib.filament_manager import FilamentManager
 from PIL import Image
 import io
 import asyncio
@@ -159,43 +158,19 @@ class StratumApp:
             self.filaments.insert(new, item)
         self.update_filament_list()
 
-    def add_filament_from_manager(self, filament):
-        """Add a filament from the filament manager to the project"""
-        self.filaments.append(filament)
-        self.update_filament_list()
-        ui.notify('Filament added to project', color='green')
-
-    def open_filament_manager(self):
-        """Open the filament management dialog"""
-        self.filament_manager.open_dialog()
-
-    def add_filament_from_manager(self, filament):
-        """Add a filament from the filament manager to the project"""
-        self.filaments.append(filament)
-        self.update_filament_list()
-        ui.notify('Filament added to project', color='green')
-
-    def open_filament_manager(self):
-        """Open the filament management dialog"""
-        self.filament_manager.open_dialog()
-
     def remove_filament(self, idx):
         self.filaments.pop(idx)
         self.update_filament_list()
 
+    def add_filament(self):
+        self.filaments.append({'color': '#000000', 'cover': 0.25})
+        self.update_filament_list()
+
     def add_filament_from_manager(self, filament):
         """Add a filament from the filament manager to the project"""
         self.filaments.append(filament)
         self.update_filament_list()
         ui.notify('Filament added to project', color='green')
-
-    def open_filament_manager(self):
-        """Open the filament management dialog"""
-        self.filament_manager.open_dialog()
-
-    def add_filament(self):
-        self.filaments.append({'color': '#000000', 'cover': 0.25})
-        self.update_filament_list()
 
     def new_project(self):
         self.filaments = []
@@ -409,6 +384,9 @@ class StratumApp:
         self.project_dialog.open()
 
     def build(self):
+        # Initialize filament manager with callback
+        self.filament_manager.build_dialog(on_add_callback=self.add_filament_from_manager)
+
         # Edit dialog
         with ui.dialog() as self.edit_dialog:
             with ui.card():
@@ -439,7 +417,9 @@ class StratumApp:
                 with ui.column().classes('flex-auto gap-0 w-64 mt-16'):
                     with ui.row().classes('items-center justify-between mb-2 mt-6 ml-4'):
                         ui.markdown('**Filament List**').classes('text-gray-300')
-                        ui.button(icon='add', on_click=self.add_filament).props('size=sm round flat').tooltip('Add Filament')
+                        with ui.row().classes('gap-1'):
+                            ui.button(icon='palette', on_click=self.filament_manager.open_dialog).props('size=sm round flat').tooltip('Manage Filaments')
+                            ui.button(icon='add', on_click=self.add_filament).props('size=sm round flat').tooltip('Add Filament')
                     # expand able scroll area for filaments
                     with ui.scroll_area().classes("w-full m-0 p-0 bg-neutral-900 flex-auto"):
                         self.filament_container = ui.column().classes('gap-2 mb-4')

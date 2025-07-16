@@ -6,22 +6,21 @@ class FilamentManager:
     def __init__(self):
         self.filament_dialog = None
         self.filament_list_container = None
+        self.filament_list_container_favs = None
         self.name_input = None
         self.color_input = None
         self.max_layers_input = None
         self.td_value_input = None
         self.favorite_checkbox = None
         self.on_add_callback = None
+        self.tab_panels = None
 
         # Load saved filaments from storage
         self.load_filaments()
+        print(app.storage.general)
 
     def load_filaments(self):
-        """Load filaments from NiceGUI storage"""
-        try:
-            self.saved_filaments = app.storage.general.get('saved_filaments', [])
-        except:
-            self.saved_filaments = []
+        self.saved_filaments = app.storage.general.get('saved_filaments', [])
 
     def save_filaments(self):
         """Save filaments to NiceGUI storage"""
@@ -39,7 +38,13 @@ class FilamentManager:
 
         self.saved_filaments.append(filament)
         self.save_filaments()
-        self.update_filament_list()
+        self.update_filament_list(container=self.filament_list_container)
+        self.update_filament_list(container=self.filament_list_container_favs, favorites_only=True)
+
+        if self.favorite_checkbox.value:
+            self.tab_panels.value = 'Favorites'
+        else:
+            self.tab_panels.value = 'All'
 
         # Reset form
         self.name_input.value = ''
@@ -54,14 +59,16 @@ class FilamentManager:
         """Remove a filament from the saved list"""
         self.saved_filaments.pop(idx)
         self.save_filaments()
-        self.update_filament_list()
+        self.update_filament_list(container=self.filament_list_container)
+        self.update_filament_list(container=self.filament_list_container_favs, favorites_only=True)
         ui.notify('Filament removed', color='info')
 
     def toggle_favorite(self, idx):
         """Toggle favorite status of a filament"""
         self.saved_filaments[idx]['favorite'] = not self.saved_filaments[idx]['favorite']
         self.save_filaments()
-        self.update_filament_list()
+        self.update_filament_list(container=self.filament_list_container)
+        self.update_filament_list(container=self.filament_list_container_favs, favorites_only=True)
 
     def add_to_project(self, idx):
         """Add a filament to the project filament list"""
@@ -74,18 +81,18 @@ class FilamentManager:
             }
             self.on_add_callback(project_filament)
 
-    def update_filament_list(self):
+    def update_filament_list(self, container=None, favorites_only=False):
         """Update the filament list display"""
-        if not self.filament_list_container:
+        if not container:
             return
 
-        self.filament_list_container.clear()
+        container.clear()
 
         # Sort filaments: favorites first, then by name
         sorted_filaments = sorted(self.saved_filaments,
                                   key=lambda f: (not f['favorite'], f['name'].lower()))
 
-        with self.filament_list_container:
+        with container:
             if not sorted_filaments:
                 ui.markdown('**No filaments saved**').classes('text-gray-500 p-4')
                 return
@@ -94,38 +101,40 @@ class FilamentManager:
                 # Find original index for operations
                 orig_idx = self.saved_filaments.index(filament)
 
-                with ui.card().classes('w-full mb-2'):
-                    with ui.row().classes('items-center justify-between w-full'):
-                        with ui.row().classes('items-center gap-3'):
-                            # Color indicator
-                            ui.html(
-                                f"<div style=\"width: 30px; height: 30px; border-radius: 50%; border: 2px solid #ccc; background-color: {filament['color']};\"></div>")
+                if favorites_only and not filament['favorite']:
+                    continue
 
-                            # Filament info
-                            with ui.column().classes('gap-0'):
-                                name_text = filament['name']
-                                if filament['favorite']:
-                                    name_text = f"⭐ {name_text}"
-                                ui.label(name_text).classes('font-semibold')
-                                ui.label(f"Max layers: {filament['max_layers']}, TD: {filament['td_value']}").classes(
-                                    'text-sm text-gray-500')
+                with ui.row().classes('items-center justify-between w-full'):
+                    with ui.row().classes('items-center gap-3'):
+                        # Color indicator
+                        ui.html(
+                            f"<div style=\"width: 30px; height: 30px; border-radius: 50%; border: 2px solid #ccc; background-color: {filament['color']};\"></div>")
 
-                        # Action buttons
-                        with ui.row().classes('gap-1'):
-                            ui.button(
-                                icon='favorite' if filament['favorite'] else 'favorite_border',
-                                on_click=lambda _, i=orig_idx: self.toggle_favorite(i)
-                            ).props('flat round size=sm color=orange').tooltip('Toggle Favorite')
+                        # Filament info
+                        with ui.column().classes('gap-0'):
+                            name_text = filament['name']
+                            if filament['favorite']:
+                                name_text = f"⭐ {name_text}"
+                            ui.label(name_text).classes('font-semibold')
+                            ui.label(f"Max layers: {filament['max_layers']}, TD: {filament['td_value']}").classes(
+                                'text-sm text-gray-500')
 
-                            ui.button(
-                                icon='add',
-                                on_click=lambda _, i=orig_idx: self.add_to_project(i)
-                            ).props('flat round size=sm color=primary').tooltip('Add to Project')
+                    # Action buttons
+                    with ui.row().classes('gap-1'):
+                        ui.button(
+                            icon='add',
+                            on_click=lambda _, i=orig_idx: self.add_to_project(i)
+                        ).props('flat round size=sm color=primary').tooltip('Add to Project')
 
-                            ui.button(
-                                icon='delete',
-                                on_click=lambda _, i=orig_idx: self.remove_filament(i)
-                            ).props('flat round size=sm color=red').tooltip('Delete')
+                        ui.button(
+                            icon='favorite' if filament['favorite'] else 'favorite_border',
+                            on_click=lambda _, i=orig_idx: self.toggle_favorite(i)
+                        ).props('flat round size=sm color=orange').tooltip('Toggle Favorite')
+
+                        ui.button(
+                            icon='delete',
+                            on_click=lambda _, i=orig_idx: self.remove_filament(i)
+                        ).props('flat round size=sm color=red').tooltip('Delete')
 
     def open_dialog(self):
         """Open the filament management dialog"""
@@ -136,18 +145,15 @@ class FilamentManager:
         """Build the filament management dialog"""
         self.on_add_callback = on_add_callback
 
-        with ui.dialog().props('maximized') as self.filament_dialog:
-            with ui.card().classes('w-full h-full'):
-                with ui.row().classes('items-center justify-between mb-4'):
-                    ui.markdown('## Filament Management')
-                    ui.button(icon='close', on_click=lambda: self.filament_dialog.close()).props('flat round')
-
-                with ui.row().classes('w-full h-full gap-6'):
-                    # Left side: Add new filament
-                    with ui.column().classes('flex-none w-80 gap-4'):
-                        ui.markdown('### Add New Filament')
-
-                        with ui.card().classes('w-full'):
+        with ui.dialog().style('z-index:50').props('position=left') as self.filament_dialog:
+            with ui.card().classes('w-80 h-full ml-40 p-0').style('max-height: 600px; left: 100px;'):
+                with ui.column().classes('w-full flex-auto gap-0'):
+                    with ui.tabs().classes('w-full') as tabs:
+                        add = ui.tab('Add')
+                        fav = ui.tab('Favorites')
+                        all = ui.tab('All')
+                    with ui.tab_panels(tabs, value=fav).classes('w-full h-full') as self.tab_panels:
+                        with ui.tab_panel(add):
                             self.name_input = ui.input(
                                 label='Filament Name',
                                 placeholder='e.g., PLA Red, PETG Clear...'
@@ -185,14 +191,16 @@ class FilamentManager:
                                 on_click=self.add_filament
                             ).props('color=primary').classes('w-full mt-4')
 
-                    # Right side: Saved filaments list
-                    with ui.column().classes('flex-auto'):
-                        ui.markdown('### Saved Filaments')
+                        with ui.tab_panel(fav).classes('h-full p-0'):
+                            with ui.scroll_area().classes('h-full p-0'):
+                                self.filament_list_container_favs = ui.column().classes('w-full')
+                        with ui.tab_panel(all).classes('h-full p-0'):
+                            with ui.scroll_area().classes('h-full p-0'):
+                                self.filament_list_container = ui.column().classes('w-full')
 
-                        with ui.scroll_area().classes('h-full border rounded'):
-                            self.filament_list_container = ui.column().classes('w-full p-2')
 
         # Initial load of filament list
-        self.update_filament_list()
+        self.update_filament_list(container=self.filament_list_container)
+        self.update_filament_list(container=self.filament_list_container_favs, favorites_only=True)
 
         return self.filament_dialog
