@@ -15,5 +15,5 @@ def main_page():
     sapp.build()
 
 # setup native app
-ui.run(native=True, window_size=(1480, 900))
+ui.run(native=True, window_size=(1480, 900), reload=False)
 #ui.run(native=False)
