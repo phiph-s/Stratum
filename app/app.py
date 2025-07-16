@@ -1,5 +1,7 @@
 from nicegui import app,ui
 from lib.mask_creation import generate_shades, segment_to_shades
+from lib.filament_manager import FilamentManager
+from lib.filament_manager import FilamentManager
 from PIL import Image
 import io
 import asyncio
@@ -24,6 +26,9 @@ class StratumApp:
         self.rendered_image_size = None
         self.filament_shades = None
         self.rendered_image = None
+        # Initialize filament manager
+        self.filament_manager = FilamentManager()
+
         self.last_saved_path = None
 
         # UI components (to be set in build)
@@ -154,9 +159,39 @@ class StratumApp:
             self.filaments.insert(new, item)
         self.update_filament_list()
 
+    def add_filament_from_manager(self, filament):
+        """Add a filament from the filament manager to the project"""
+        self.filaments.append(filament)
+        self.update_filament_list()
+        ui.notify('Filament added to project', color='green')
+
+    def open_filament_manager(self):
+        """Open the filament management dialog"""
+        self.filament_manager.open_dialog()
+
+    def add_filament_from_manager(self, filament):
+        """Add a filament from the filament manager to the project"""
+        self.filaments.append(filament)
+        self.update_filament_list()
+        ui.notify('Filament added to project', color='green')
+
+    def open_filament_manager(self):
+        """Open the filament management dialog"""
+        self.filament_manager.open_dialog()
+
     def remove_filament(self, idx):
         self.filaments.pop(idx)
         self.update_filament_list()
+
+    def add_filament_from_manager(self, filament):
+        """Add a filament from the filament manager to the project"""
+        self.filaments.append(filament)
+        self.update_filament_list()
+        ui.notify('Filament added to project', color='green')
+
+    def open_filament_manager(self):
+        """Open the filament management dialog"""
+        self.filament_manager.open_dialog()
 
     def add_filament(self):
         self.filaments.append({'color': '#000000', 'cover': 0.25})

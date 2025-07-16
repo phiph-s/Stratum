@@ -1,3 +1,5 @@
+import math
+
 from PIL import Image
 import numpy as np
 from skimage.color import rgb2lab
@@ -84,3 +86,64 @@ def generate_shades(filament_order, cover_factors):
     for i, shades in enumerate(all_shades):
         print(f"Filament {i}: {shades}")
     return all_shades
+
+
+def generate_shades_td(filament_order, td_values, max_layer_values, layer_height):
+    """
+    Generate printable shades for a sequence of filaments using Transmission Distance (TD).
+
+    Each filament after the first blends with the last shade of the previous filament.
+    Blending factor per layer is calculated via exponential attenuation:
+        blend = 1 - exp(-h / TD)
+    where h = layer_count * layer_height.
+
+    Args:
+        filament_order (list of (R, G, B)): List of filament base colors.
+        td_values (list of float): Transmission Distance per filament (in mm). Index 0 unused.
+        max_layer_values (list of int): Max layers per filament. Index 0 unused.
+        layer_height (float): Height of one printing layer (in mm).
+
+    Returns:
+        list of lists of RGB tuples: Shades per filament.
+    """
+    all_shades = []
+
+    for i, cur in enumerate(filament_order):
+        if i == 0:
+            # First filament: no blending, just the base color
+            all_shades.append([tuple(cur)])
+        else:
+            prev_shades = all_shades[i - 1]
+            base_color = prev_shades[-1]  # last shade of previous filament
+            print (f"Base color for filament {i}: {base_color}")
+            td = td_values[i]
+            max_layers = max_layer_values[i]
+            shades = []
+
+            for L in range(1, max_layers + 1):
+                h = L * layer_height
+                blend = 1 - math.exp(-h / td)
+                shade = tuple(
+                    int(round(base_color[c] * (1 - blend) + cur[c] * blend))
+                    for c in range(3)
+                )
+                shades.append(shade)
+
+            all_shades.append(shades)
+
+    return all_shades
+
+# Test TD function
+if __name__ == "__main__":
+    filament_order = [(0, 0, 0), (255, 0, 0), (0, 255, 0)]
+    td_values = [None, 1.2, 0.8]
+    max_layer_values = [None, 4, 3]
+    layer_height = 0.2
+
+    shades = generate_shades_td(filament_order, td_values, max_layer_values, layer_height)
+    for i, s in enumerate(shades):
+        print(f"Filament {i} Shades:")
+        for layers, color in zip(range(len(s)), s,):
+            print(f"  {layers+1} Schicht(en) → RGB{color}")
+
+    print(shades)
