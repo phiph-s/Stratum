@@ -1,5 +1,5 @@
 from nicegui import app,ui
-from lib.mask_creation import generate_shades, segment_to_shades
+from lib.mask_creation import generate_shades, segment_to_shades, generate_shades_td
 from lib.filament_manager import FilamentManager
 from PIL import Image
 import io
@@ -137,13 +137,21 @@ class StratumApp:
 
     def update_filament_list(self):
         self.filament_container.clear()
+        print(self.filaments)
         for idx, f in enumerate(reversed(self.filaments)):
             real_idx = len(self.filaments) - 1 - idx
+
+            # Retrieve filament data from manager if available
+            manager_id = f.get('id', None)
+            data = f.get('copied_data', {})
+            if manager_id is not None:
+                f_data, _ = self.filament_manager.find_filament_by_id(manager_id)  # Ensure the filament is in the manager
+                if f_data: data = f_data
+
             with self.filament_container:
                 with ui.row().classes('items-center gap-2 justify-between'):
                     with ui.row().classes('items-center gap-2'):
-                        ui.html(f"<div style=\"width: 70px; height:24px; border-radius: 3px; border: 1px lightgray solid; background-color:{f['color']};\"></div>")
-                        ui.button(icon='edit', on_click=lambda _, i=real_idx: self.open_edit(i)).props('flat round size=sm')
+                        ui.html(f"<div style=\"width: 70px; height:24px; border-radius: 3px; font-size: 0.6rem; border: 1px lightgray solid; white-space: nowrap; overflow: hidden; background-color:{data['color']};\">{data['name']}</div>")
                         ui.button(icon='delete', color='red', on_click=lambda _, i=real_idx: self.remove_filament(i)).props('flat round size=sm')
                     with ui.row().classes('items-center gap-1'):
                         ui.button(icon='arrow_upward', on_click=lambda _, i=real_idx: self.move_filament(i, i+1)).props('flat round size=sm')
@@ -160,10 +168,6 @@ class StratumApp:
 
     def remove_filament(self, idx):
         self.filaments.pop(idx)
-        self.update_filament_list()
-
-    def add_filament(self):
-        self.filaments.append({'color': '#000000', 'cover': 0.25})
         self.update_filament_list()
 
     def add_filament_from_manager(self, filament):
@@ -265,8 +269,21 @@ class StratumApp:
         self.progress_bar.visible = True
         self.redraw_button.disable()
         self.export_button.disable()
-        colors = [tuple(int(f['color'][i:i + 2], 16) for i in (1, 3, 5)) for f in self.filaments]
-        covers = [f['cover'] for f in self.filaments]
+
+        #colors = [tuple(int(f['color'][i:i + 2], 16) for i in (1, 3, 5)) for f in self.filaments]
+        colors = []
+        max_layers = []
+        td_values = []
+        for f in self.filaments:
+            manager_id = f.get('id', None)
+            data = f.get('copied_data', {})
+            if manager_id is not None:
+                f_data, _ = self.filament_manager.find_filament_by_id(manager_id)  # Ensure the filament is in the manager
+                if f_data: data = f_data
+            color = data.get('color', '#000000')
+            colors.append(tuple(int(color[i:i + 2], 16) for i in (1, 3, 5)))
+            max_layers.append(data.get('max_layers', 5))
+            td_values.append(data.get('td_value', 0.5))
 
         # Calculate resolution scale factor based on image size
         img_width, img_height = self.original_image.size
@@ -306,7 +323,7 @@ class StratumApp:
         min_area = max(0.01, min(100.0, min_area))
 
         def compute():
-            shades = generate_shades(colors, covers)
+            shades = generate_shades_td(colors, td_values, max_layers, float(self.layer_input.value))
             segmented = segment_to_shades(self.original_image, shades)
             polys = create_layered_polygons_parallel(
                 segmented, shades,
@@ -417,9 +434,7 @@ class StratumApp:
                 with ui.column().classes('flex-auto gap-0 w-64 mt-16'):
                     with ui.row().classes('items-center justify-between mb-2 mt-6 ml-4'):
                         ui.markdown('**Filament List**').classes('text-gray-300')
-                        with ui.row().classes('gap-1'):
-                            ui.button(icon='palette', on_click=self.filament_manager.open_dialog).props('size=sm round flat').tooltip('Manage Filaments')
-                            ui.button(icon='add', on_click=self.add_filament).props('size=sm round flat').tooltip('Add Filament')
+                        ui.button(icon='palette', on_click=self.filament_manager.open_dialog).props('size=sm round flat').tooltip('Manage Filaments')
                     # expand able scroll area for filaments
                     with ui.scroll_area().classes("w-full m-0 p-0 bg-neutral-900 flex-auto"):
                         self.filament_container = ui.column().classes('gap-2 mb-4')

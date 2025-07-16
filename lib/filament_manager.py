@@ -1,5 +1,6 @@
 from nicegui import app, ui
 import json
+import uuid
 
 
 class FilamentManager:
@@ -29,6 +30,7 @@ class FilamentManager:
     def add_filament(self):
         """Add a new filament to the saved list"""
         filament = {
+            'id': str(uuid.uuid4()),
             'name': self.name_input.value or 'Unnamed Filament',
             'color': self.color_input.value,
             'max_layers': int(self.max_layers_input.value),
@@ -55,31 +57,48 @@ class FilamentManager:
 
         ui.notify('Filament added successfully', color='green')
 
-    def remove_filament(self, idx):
+    def find_filament_by_id(self, filament_id):
+        """Find filament by ID and return both filament and index"""
+        for idx, filament in enumerate(self.saved_filaments):
+            if filament['id'] == filament_id:
+                return filament, idx
+        return None, -1
+
+    def remove_filament(self, filament_id):
         """Remove a filament from the saved list"""
-        self.saved_filaments.pop(idx)
-        self.save_filaments()
-        self.update_filament_list(container=self.filament_list_container)
-        self.update_filament_list(container=self.filament_list_container_favs, favorites_only=True)
-        ui.notify('Filament removed', color='info')
+        filament, idx = self.find_filament_by_id(filament_id)
+        if idx >= 0:
+            self.saved_filaments.pop(idx)
+            self.save_filaments()
+            self.update_filament_list(container=self.filament_list_container)
+            self.update_filament_list(container=self.filament_list_container_favs, favorites_only=True)
+            ui.notify('Filament removed', color='info')
 
-    def toggle_favorite(self, idx):
+    def toggle_favorite(self, filament_id):
         """Toggle favorite status of a filament"""
-        self.saved_filaments[idx]['favorite'] = not self.saved_filaments[idx]['favorite']
-        self.save_filaments()
-        self.update_filament_list(container=self.filament_list_container)
-        self.update_filament_list(container=self.filament_list_container_favs, favorites_only=True)
+        filament, idx = self.find_filament_by_id(filament_id)
+        if idx >= 0:
+            self.saved_filaments[idx]['favorite'] = not self.saved_filaments[idx]['favorite']
+            self.save_filaments()
+            self.update_filament_list(container=self.filament_list_container)
+            self.update_filament_list(container=self.filament_list_container_favs, favorites_only=True)
 
-    def add_to_project(self, idx):
+    def add_to_project(self, filament_id):
         """Add a filament to the project filament list"""
         if self.on_add_callback:
-            filament = self.saved_filaments[idx]
-            # Convert to old format with default coverage for now
-            project_filament = {
-                'color': filament['color'],
-                'cover': 0.33  # Default coverage as requested
-            }
-            self.on_add_callback(project_filament)
+            filament, _ = self.find_filament_by_id(filament_id)
+            if filament:
+                project_filament = {
+                    'id': filament['id'],
+                    # we also copy the name, max_layers, and td_value to save with the project (but prefer from manager)
+                    'copied_data': {
+                        'name': filament['name'],
+                        'color': filament['color'],
+                        'max_layers': filament['max_layers'],
+                        'td_value': filament['td_value']
+                    }
+                }
+                self.on_add_callback(project_filament)
 
     def update_filament_list(self, container=None, favorites_only=False):
         """Update the filament list display"""
@@ -97,10 +116,7 @@ class FilamentManager:
                 ui.markdown('**No filaments saved**').classes('text-gray-500 p-4')
                 return
 
-            for idx, filament in enumerate(sorted_filaments):
-                # Find original index for operations
-                orig_idx = self.saved_filaments.index(filament)
-
+            for filament in sorted_filaments:
                 if favorites_only and not filament['favorite']:
                     continue
 
@@ -123,17 +139,17 @@ class FilamentManager:
                     with ui.row().classes('gap-1'):
                         ui.button(
                             icon='add',
-                            on_click=lambda _, i=orig_idx: self.add_to_project(i)
+                            on_click=lambda _, fid=filament['id']: self.add_to_project(fid)
                         ).props('flat round size=sm color=primary').tooltip('Add to Project')
 
                         ui.button(
                             icon='favorite' if filament['favorite'] else 'favorite_border',
-                            on_click=lambda _, i=orig_idx: self.toggle_favorite(i)
+                            on_click=lambda _, fid=filament['id']: self.toggle_favorite(fid)
                         ).props('flat round size=sm color=orange').tooltip('Toggle Favorite')
 
                         ui.button(
                             icon='delete',
-                            on_click=lambda _, i=orig_idx: self.remove_filament(i)
+                            on_click=lambda _, fid=filament['id']: self.remove_filament(fid)
                         ).props('flat round size=sm color=red').tooltip('Delete')
 
     def open_dialog(self):

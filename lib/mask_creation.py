@@ -135,9 +135,9 @@ def generate_shades_td(filament_order, td_values, max_layer_values, layer_height
 
 # Test TD function
 if __name__ == "__main__":
-    filament_order = [(0, 0, 0), (255, 0, 0), (0, 255, 0)]
-    td_values = [None, 1.2, 0.8]
-    max_layer_values = [None, 4, 3]
+    filament_order = [(0, 0, 0), (255, 255, 255)]
+    td_values = [None, 7.5]
+    max_layer_values = [None, 5, 3]
     layer_height = 0.2
 
     shades = generate_shades_td(filament_order, td_values, max_layer_values, layer_height)
