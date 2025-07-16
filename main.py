@@ -15,6 +15,5 @@ def main_page():
     sapp.build()
 
 # setup native app
-app.native.window_args['resizable'] = False
 ui.run(native=True, window_size=(1480, 900))
 #ui.run(native=False)
