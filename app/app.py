@@ -146,9 +146,12 @@ class StratumApp:
             # Retrieve filament data from manager if available
             manager_id = f.get('id', None)
             data = f.get('copied_data', {})
+            project_specific = True
             if manager_id is not None:
                 f_data, _ = self.filament_manager.find_filament_by_id(manager_id)  # Ensure the filament is in the manager
-                if f_data: data = f_data
+                if f_data:
+                    data = f_data
+                    project_specific = False
 
             # Get instance max_layers value (takes precedence over manager value)
             instance_max_layers = f.get('max_layers', data.get('max_layers', 5))
@@ -165,11 +168,11 @@ class StratumApp:
                 is_bright = False
 
             with self.filament_container:
-                row_classes = 'items-center gap-2 p-1 rounded'
+                row_classes = 'items-center gap-1 p-1 rounded'
                 if is_bright:
                     row_classes += ' text-black'
                 else:
-                    row_classes += ' text-white'
+                    row_classes += ' text-white border border-gray-400'
 
                 with ui.row().classes('w-full ' + row_classes).style(f'background-color:{data["color"]};'):
                     # Left side: Up/Down buttons stacked
@@ -178,10 +181,14 @@ class StratumApp:
                         ui.button(icon='keyboard_arrow_down', on_click=lambda _, i=real_idx: self.move_filament(i, i-1)).props('flat round size=xs').style('min-width: 20px; min-height: 20px;').classes(row_classes)
 
                     # Middle: Name and max_layers input - takes all available space
-                    with ui.column().classes('flex-grow gap-1 min-w-0'):
+                    with ui.column().classes('flex-grow gap-0 min-w-0'):
                         # First row: Name with context menu
                         with ui.row().classes('items-center gap-2 w-full justify-between'):
-                            ui.label(data['name']).classes('text-sm font-semibold w-32 truncate')
+                            add = "* " if project_specific else ""
+                            tooltip = data["name"]
+                            if project_specific:
+                                tooltip += " (not in library)"
+                            ui.label(add + data['name']).classes('text-sm font-semibold w-32 truncate').tooltip(tooltip)
                             # Right side: Context menu - fixed size
                             with ui.button(icon='more_vert').props('flat round size=sm').style('min-width: 32px;').classes(row_classes + ' flex-shrink-0'):
                                 with ui.menu():
@@ -189,15 +196,22 @@ class StratumApp:
 
                         # Second row: Slider with icons
                         color = 'black' if is_bright else 'white'
-                        with ui.row().classes('items-center gap-1 w-full flex-nowrap'):
-                            slider = ui.slider(
-                                value=instance_max_layers,
-                                min=1,
-                                max=20,
-                                on_change=lambda e, i=real_idx: self.update_max_layers(i, int(e.value))
-                            ).classes('flex-1 min-w-0 mr-1').props(f'dense outlined size=sm label markers color={color}').style('font-size: 0.75rem;')
-                            ui.label().bind_text_from(slider, 'value').classes('text-xs flex-shrink-0 text-center')
-                            ui.icon('layers').classes('text-xs flex-shrink-0 pr-2')
+                        color_rev = 'white' if is_bright else 'black'
+                        # check for last filament, if so, don't show max_layers slider
+                        if real_idx == 0:
+                            with ui.row().classes('items-center gap-1 w-full flex-nowrap'):
+                                ui.icon('vertical_align_bottom').classes('text-xs flex-shrink-0 pr-1')
+                                ui.label("First layer").classes('text-xs').tooltip("The layers of the bottom layer is set in the export settings")
+                        else:
+                            with ui.row().classes('items-center gap-1 w-full flex-nowrap'):
+                                slider = ui.slider(
+                                    value=instance_max_layers,
+                                    min=1,
+                                    max=20,
+                                    on_change=lambda e, i=real_idx: self.update_max_layers(i, int(e.value))
+                                ).classes('flex-1 min-w-0 mr-1').props(f'dense outlined size=sm label markers color="{color}" label-text-color="{color_rev}"').style('font-size: 0.75rem;')
+                                ui.label().bind_text_from(slider, 'value').classes('text-xs flex-shrink-0 text-center')
+                                ui.icon('layers').classes('text-xs flex-shrink-0 pr-2')
 
 
         if not self.filaments:
@@ -508,7 +522,7 @@ class StratumApp:
                 with ui.column().classes('flex-auto gap-0 w-64 mt-16'):
                     with ui.row().classes('items-center justify-between mb-2 mt-6 ml-4'):
                         ui.markdown('**Filament List**').classes('text-gray-300')
-                        ui.button(icon='palette', on_click=self.filament_manager.open_dialog).props('size=sm round flat').tooltip('Manage Filaments')
+                        ui.button("Create", icon='add', on_click=self.filament_manager.open_dialog).props('size=sm flat').tooltip('Manage Filaments')
                     # expand able scroll area for filaments
                     with ui.scroll_area().classes("w-full m-0 p-0 bg-neutral-900 flex-auto"):
                         self.filament_container = ui.column().classes('gap-2 mb-4 w-full')
