@@ -4,6 +4,7 @@ from PIL import Image
 import numpy as np
 from skimage.color import rgb2lab
 
+TRANSMISSION_TO_BLEND_FACTOR = 0.1
 
 def segment_to_shades(source_image: Image, filament_shades):
     # Convert to RGBA to handle transparency
@@ -45,48 +46,6 @@ def segment_to_shades(source_image: Image, filament_shades):
 
     return Image.fromarray(seg_rgba, mode='RGBA')
 
-def generate_shades(filament_order, cover_factors):
-    """
-    Generate blended shades for a sequence of filaments based on individual cover factors.
-
-    Each filament after the first blends with the previous one using a number of layers
-    calculated as round(1 / cover_factor). The blending factor for each layer is
-    cover_factor * layer_number.
-
-    Args:
-        filament_order (list of (R, G, B)): List of filament base colors.
-        cover_factors (list of float): One per filament, in range (0, 1], defining blending strength.
-
-    Returns:
-        List of lists of RGB tuples: Shades per filament.
-    """
-    all_shades = []
-
-    for i, cur in enumerate(filament_order):
-        if i == 0:
-            # First filament: no blending
-            all_shades.append([tuple(cur)])
-        else:
-            prev = filament_order[i - 1]
-            cover_factor = cover_factors[i]
-            max_layers = int(round(1 / cover_factor))
-            print (f"Max layers for filament {i}: {max_layers}")
-            shades = []
-
-            for L in range(1, max_layers + 1):
-                blend = min(cover_factor * L, 1.0)
-                shade = tuple(
-                    int(round(prev[c] * (1 - blend) + cur[c] * blend))
-                    for c in range(3)
-                )
-                shades.append(shade)
-
-            all_shades.append(shades)
-    print("Generated shades:")
-    for i, shades in enumerate(all_shades):
-        print(f"Filament {i}: {shades}")
-    return all_shades
-
 
 def generate_shades_td(filament_order, td_values, max_layer_values, layer_height):
     """
@@ -116,7 +75,7 @@ def generate_shades_td(filament_order, td_values, max_layer_values, layer_height
             prev_shades = all_shades[i - 1]
             base_color = prev_shades[-1]  # last shade of previous filament
             print (f"Base color for filament {i}: {base_color}")
-            td = td_values[i]
+            td = td_values[i] * TRANSMISSION_TO_BLEND_FACTOR
             max_layers = max_layer_values[i]
             shades = []
 

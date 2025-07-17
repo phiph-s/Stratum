@@ -1,5 +1,5 @@
 from nicegui import app,ui
-from lib.mask_creation import generate_shades, segment_to_shades, generate_shades_td
+from lib.mask_creation import segment_to_shades, generate_shades_td
 from lib.filament_manager import FilamentManager
 from PIL import Image
 import io
@@ -34,6 +34,8 @@ class StratumApp:
         self.cover_input = None
         self.color_input = None
         self.edit_dialog = None
+        self.filament_edit_dialog = None
+        self.filament_edit_max_layers_input = None
         self.position_info_content = None
         self.filament_container = None
         self.placeholder = None
@@ -137,7 +139,7 @@ class StratumApp:
 
     def update_filament_list(self):
         self.filament_container.clear()
-        print(self.filaments)
+        print("filaments:", self.filaments)
         for idx, f in enumerate(reversed(self.filaments)):
             real_idx = len(self.filaments) - 1 - idx
 
@@ -148,14 +150,51 @@ class StratumApp:
                 f_data, _ = self.filament_manager.find_filament_by_id(manager_id)  # Ensure the filament is in the manager
                 if f_data: data = f_data
 
+            # Get instance max_layers value (takes precedence over manager value)
+            instance_max_layers = f.get('max_layers', data.get('max_layers', 5))
+
+            # Check if color is brighter than (128,128,128)
+            color_hex = data.get('color', '#000000')
+            # Parse hex color to RGB
+            try:
+                r = int(color_hex[1:3], 16)
+                g = int(color_hex[3:5], 16)
+                b = int(color_hex[5:7], 16)
+                is_bright = r > 128 or g > 128 or b > 128
+            except (ValueError, IndexError):
+                is_bright = False
+
             with self.filament_container:
-                with ui.row().classes('items-center gap-2 justify-between'):
-                    with ui.row().classes('items-center gap-2'):
-                        ui.html(f"<div style=\"width: 70px; height:24px; border-radius: 3px; font-size: 0.6rem; border: 1px lightgray solid; white-space: nowrap; overflow: hidden; background-color:{data['color']};\">{data['name']}</div>")
-                        ui.button(icon='delete', color='red', on_click=lambda _, i=real_idx: self.remove_filament(i)).props('flat round size=sm')
-                    with ui.row().classes('items-center gap-1'):
-                        ui.button(icon='arrow_upward', on_click=lambda _, i=real_idx: self.move_filament(i, i+1)).props('flat round size=sm')
-                        ui.button(icon='arrow_downward', on_click=lambda _, i=real_idx: self.move_filament(i, i-1)).props('flat round size=sm')
+                row_classes = 'items-center gap-2 justify-between p-2'
+                if is_bright:
+                    row_classes += ' bright'
+
+                with ui.row().classes(row_classes).style(f'background-color:{data["color"]}; border: 1px lightgray solid; border-radius: 4px;'):
+                    # Left side: Up/Down buttons stacked
+                    with ui.column().classes('gap-1'):
+                        ui.button(icon='keyboard_arrow_up', on_click=lambda _, i=real_idx: self.move_filament(i, i+1)).props('flat round size=xs padding="2px"').style('min-width: 20px; min-height: 20px;')
+                        ui.button(icon='keyboard_arrow_down', on_click=lambda _, i=real_idx: self.move_filament(i, i-1)).props('flat round size=xs padding="2px"').style('min-width: 20px; min-height: 20px;')
+
+                    # Middle: Name and max_layers input
+                    with ui.column().classes('flex-auto gap-1'):
+                        ui.label(data['name']).classes('font-semibold text-base')
+                        ui.number(
+                            label='Max layers',
+                            value=instance_max_layers,
+                            min=1,
+                            max=999,
+                            format='%d',
+                            on_change=lambda e, i=real_idx: self.update_max_layers(i, int(e.value))
+                        ).classes('w-32').props('dense outlined size=sm').style('font-size: 0.75rem;')
+
+                    # Right side: Context menu
+                    with ui.button(icon='more_vert').props('flat round size=sm').style('min-width: 32px;'):
+                        with ui.menu():
+                            ui.menu_item('Remove', on_click=lambda _, i=real_idx: self.remove_filament(i)) #, icon='delete'
+
+                if is_bright:
+                    ui.query('.bright *').style('color: black; border-color: black !important;')
+
         if not self.filaments:
             with self.filament_container:
                 ui.markdown('**No filaments added**').classes('text-gray-500')
@@ -172,9 +211,29 @@ class StratumApp:
 
     def add_filament_from_manager(self, filament):
         """Add a filament from the filament manager to the project"""
+        # Add max_layers as an instance attribute with default value of 5
+        # since max_layers is now project-specific and not stored in the manager
+        filament['max_layers'] = 5  # Default value for new project filaments
         self.filaments.append(filament)
         self.update_filament_list()
         ui.notify('Filament added to project', color='green')
+
+    def open_filament_edit(self, idx):
+        """Open edit dialog for filament max_layers"""
+        self.editing_idx = idx
+        # Get current max_layers value (instance attribute takes precedence)
+        current_max_layers = self.filaments[idx].get('max_layers', 5)
+        self.filament_edit_max_layers_input.value = current_max_layers
+        self.filament_edit_dialog.open()
+
+    def apply_filament_edit(self):
+        """Apply changes to filament max_layers"""
+        if self.editing_idx is None:
+            return
+        self.filaments[self.editing_idx]['max_layers'] = int(self.filament_edit_max_layers_input.value)
+        self.update_filament_list()
+        self.filament_edit_dialog.close()
+        ui.notify('Filament updated', color='green')
 
     def new_project(self):
         self.filaments = []
@@ -282,7 +341,9 @@ class StratumApp:
                 if f_data: data = f_data
             color = data.get('color', '#000000')
             colors.append(tuple(int(color[i:i + 2], 16) for i in (1, 3, 5)))
-            max_layers.append(data.get('max_layers', 5))
+            # Use instance max_layers (takes precedence over manager value)
+            instance_max_layers = f.get('max_layers', data.get('max_layers', 5))
+            max_layers.append(instance_max_layers)
             td_values.append(data.get('td_value', 0.5))
 
         # Calculate resolution scale factor based on image size
@@ -413,6 +474,14 @@ class StratumApp:
                 with ui.row().classes('justify-end gap-2'):
                     ui.button('Cancel', on_click=lambda: self.edit_dialog.close())
                     ui.button('Apply', on_click=lambda: self.apply_edit())
+        # Filament edit dialog
+        with ui.dialog() as self.filament_edit_dialog:
+            with ui.card():
+                ui.markdown('#### Edit Filament Max Layers')
+                self.filament_edit_max_layers_input = ui.number(label='Max Layers', value=5, format='%d', min=1, max=999).style('width:100%')
+                with ui.row().classes('justify-end gap-2'):
+                    ui.button('Cancel', on_click=lambda: self.filament_edit_dialog.close())
+                    ui.button('Apply', on_click=lambda: self.apply_filament_edit())
         # Project dialog
         with ui.dialog() as self.project_dialog:
             with ui.column():
@@ -506,3 +575,9 @@ class StratumApp:
         # Enable dark mode and adjust padding
         ui.dark_mode().enable()
         ui.query('.nicegui-content').classes('p-0')
+
+    def update_max_layers(self, idx, new_value):
+        """Update max_layers value for a filament directly from the UI input"""
+        if 0 <= idx < len(self.filaments):
+            self.filaments[idx]['max_layers'] = new_value
+            ui.notify(f'Max layers updated to {new_value}', color='green')
