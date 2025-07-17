@@ -9,11 +9,27 @@ multiprocessing.set_start_method("spawn", force=True)
 from nicegui import ui, app
 from app.app import StratumApp
 
+project_path = None
 
 @ui.page('/')
 def main_page():
     sapp = StratumApp()
     sapp.build()
+
+    if project_path:
+        try:
+            with open(project_path, 'r') as f:
+                content = f.read()
+                sapp.load_project(content)
+                sapp.last_saved_path = project_path
+        except Exception as e:
+            print(f"Error loading project {project_path}: {str(e)}")
+            ui.notify(f'Error loading project: {str(e)}', color='red')
+
+# define project with -p or --project
+if '-p' in sys.argv or '--project' in sys.argv:
+    project_index = sys.argv.index('-p') if '-p' in sys.argv else sys.argv.index('--project')
+    project_path = sys.argv[project_index + 1]
 
 # --browser
 if '--browser' in sys.argv:

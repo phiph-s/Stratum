@@ -160,40 +160,45 @@ class StratumApp:
                 r = int(color_hex[1:3], 16)
                 g = int(color_hex[3:5], 16)
                 b = int(color_hex[5:7], 16)
-                is_bright = r > 128 or g > 128 or b > 128
+                is_bright = (r + g + b) / 3 > 128
             except (ValueError, IndexError):
                 is_bright = False
 
             with self.filament_container:
-                row_classes = 'items-center gap-2 justify-between p-2'
+                row_classes = 'items-center gap-2 p-1 rounded'
                 if is_bright:
-                    row_classes += ' bright'
+                    row_classes += ' text-black'
+                else:
+                    row_classes += ' text-white'
 
-                with ui.row().classes(row_classes).style(f'background-color:{data["color"]}; border: 1px lightgray solid; border-radius: 4px;'):
+                with ui.row().classes('w-full ' + row_classes).style(f'background-color:{data["color"]};'):
                     # Left side: Up/Down buttons stacked
-                    with ui.column().classes('gap-1'):
-                        ui.button(icon='keyboard_arrow_up', on_click=lambda _, i=real_idx: self.move_filament(i, i+1)).props('flat round size=xs padding="2px"').style('min-width: 20px; min-height: 20px;')
-                        ui.button(icon='keyboard_arrow_down', on_click=lambda _, i=real_idx: self.move_filament(i, i-1)).props('flat round size=xs padding="2px"').style('min-width: 20px; min-height: 20px;')
+                    with ui.column().classes('gap-1 flex-shrink-0'):
+                        ui.button(icon='keyboard_arrow_up', on_click=lambda _, i=real_idx: self.move_filament(i, i+1)).props('flat round size=xs').style('min-width: 20px; min-height: 20px;').classes(row_classes)
+                        ui.button(icon='keyboard_arrow_down', on_click=lambda _, i=real_idx: self.move_filament(i, i-1)).props('flat round size=xs').style('min-width: 20px; min-height: 20px;').classes(row_classes)
 
-                    # Middle: Name and max_layers input
-                    with ui.column().classes('flex-auto gap-1'):
-                        ui.label(data['name']).classes('font-semibold text-base')
-                        ui.number(
-                            label='Max layers',
-                            value=instance_max_layers,
-                            min=1,
-                            max=999,
-                            format='%d',
-                            on_change=lambda e, i=real_idx: self.update_max_layers(i, int(e.value))
-                        ).classes('w-32').props('dense outlined size=sm').style('font-size: 0.75rem;')
+                    # Middle: Name and max_layers input - takes all available space
+                    with ui.column().classes('flex-grow gap-1 min-w-0'):
+                        # First row: Name with context menu
+                        with ui.row().classes('items-center gap-2 w-full justify-between'):
+                            ui.label(data['name']).classes('text-sm font-semibold w-32 truncate')
+                            # Right side: Context menu - fixed size
+                            with ui.button(icon='more_vert').props('flat round size=sm').style('min-width: 32px;').classes(row_classes + ' flex-shrink-0'):
+                                with ui.menu():
+                                    ui.menu_item('Remove', on_click=lambda _, i=real_idx: self.remove_filament(i))
 
-                    # Right side: Context menu
-                    with ui.button(icon='more_vert').props('flat round size=sm').style('min-width: 32px;'):
-                        with ui.menu():
-                            ui.menu_item('Remove', on_click=lambda _, i=real_idx: self.remove_filament(i)) #, icon='delete'
+                        # Second row: Slider with icons
+                        color = 'black' if is_bright else 'white'
+                        with ui.row().classes('items-center gap-1 w-full flex-nowrap'):
+                            slider = ui.slider(
+                                value=instance_max_layers,
+                                min=1,
+                                max=20,
+                                on_change=lambda e, i=real_idx: self.update_max_layers(i, int(e.value))
+                            ).classes('flex-1 min-w-0 mr-1').props(f'dense outlined size=sm label markers color={color}').style('font-size: 0.75rem;')
+                            ui.label().bind_text_from(slider, 'value').classes('text-xs flex-shrink-0 text-center')
+                            ui.icon('layers').classes('text-xs flex-shrink-0 pr-2')
 
-                if is_bright:
-                    ui.query('.bright *').style('color: black; border-color: black !important;')
 
         if not self.filaments:
             with self.filament_container:
@@ -506,7 +511,7 @@ class StratumApp:
                         ui.button(icon='palette', on_click=self.filament_manager.open_dialog).props('size=sm round flat').tooltip('Manage Filaments')
                     # expand able scroll area for filaments
                     with ui.scroll_area().classes("w-full m-0 p-0 bg-neutral-900 flex-auto"):
-                        self.filament_container = ui.column().classes('gap-2 mb-4')
+                        self.filament_container = ui.column().classes('gap-2 mb-4 w-full')
                         with self.filament_container:
                             ui.markdown('**No filaments added**').classes('text-gray-500')
 
@@ -580,4 +585,4 @@ class StratumApp:
         """Update max_layers value for a filament directly from the UI input"""
         if 0 <= idx < len(self.filaments):
             self.filaments[idx]['max_layers'] = new_value
-            ui.notify(f'Max layers updated to {new_value}', color='green')
+            #ui.notify(f'Max layers updated to {new_value}', color='green')
