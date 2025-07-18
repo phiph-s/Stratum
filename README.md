@@ -1,6 +1,6 @@
 # Stratum
 
-<img src="docs/images/screenshot1.png" alt="Stratum" width="400"> <img src="docs/images/screenshot1.png" alt="Stratum" width="400">
+<img src="docs/images/screenshot1.png" alt="Stratum" width="400"> <img src="docs/images/screenshot2.png" alt="Stratum" width="400">
 
 **Transform any image into stunning multi-color 3D prints with intelligent layering**
 
