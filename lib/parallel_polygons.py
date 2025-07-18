@@ -32,12 +32,19 @@ def create_layered_polygons_parallel(
 
     masks = extract_color_masks(seg_arr, shades)
     counts_map = {}
-    for fi in range(len(shades)):
+
+    for fi in range(len(shades) - 1, -1, -1):
         cnt = np.zeros(seg_arr.shape[:2], dtype=int)
         for si in range(len(shades[fi])):
             m = masks.get((fi, si))
             if m is not None:
                 cnt[m] = si + 1
+
+        if fi < len(shades) - 1 and fi != 0:  # If there's a layer above
+            layer_above = counts_map[fi + 1]
+            mask_to_fill = (layer_above > 0) & (cnt == 0)
+            cnt[mask_to_fill] = len(shades[fi])
+
         counts_map[fi] = cnt
 
     h_px = seg_arr.shape[0]
@@ -70,4 +77,3 @@ def create_layered_polygons_parallel(
         polys_list.append(poly_list)
 
     return polys_list
-

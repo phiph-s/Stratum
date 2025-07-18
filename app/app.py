@@ -406,8 +406,8 @@ class StratumApp:
         BASE_RES_PRESETS = {
             '◔': {'simplify_tol': 1.0, 'marching_squares_level': 0.5},
             '◑': {'simplify_tol': 0.5, 'marching_squares_level': 0.25},
-            '◕': {'simplify_tol': 0.01, 'marching_squares_level': 0.05},
-            "●": {'simplify_tol': 0.001, 'marching_squares_level': 0.01}
+            '◕': {'simplify_tol': 0.1, 'marching_squares_level': 0.05},
+            "●": {'simplify_tol': 0.01, 'marching_squares_level': 0.5}
         }
         BASE_DETAIL_PRESETS = {
             '◔': {'min_area': 3},

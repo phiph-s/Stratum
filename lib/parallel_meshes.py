@@ -55,7 +55,7 @@ def polygons_to_meshes_parallel(
         if sublayers:
             meshes_list.append(sublayers)
 
-    merge_layers_downward(meshes_list)
+    #merge_layers_downward(meshes_list)
 
     w_px, h_px = segmented_image.size
     meshes = []
