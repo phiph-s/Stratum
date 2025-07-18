@@ -41,11 +41,24 @@ def render_polygons_to_pil_image(
     fig_w_inch = render_w / dpi
     fig_h_inch = render_h / dpi
 
+    print(f"DEBUG: Total layers: {len(layered_polygons)}")
+    print(f"DEBUG: Total filament layers: {len(filament_shades)}")
+    for layer_idx, layer_groups in enumerate(layered_polygons):
+        shades = filament_shades[layer_idx]
+        print(f"DEBUG: Layer {layer_idx}: {len(layer_groups)} layer_groups, {len(shades)} shades")
+
+
     flat_polys, flat_colors = [], []
     for layer_idx, layer_groups in enumerate(layered_polygons):
         shades = filament_shades[layer_idx]
         for shade_idx, group in enumerate(layer_groups):
-            color = shades[shade_idx] if shade_idx < len(shades) else shades[-1]
+            if shade_idx >= len(shades):
+                print(f"WARNING: shade_idx {shade_idx} >= len(shades) {len(shades)} for layer {layer_idx}")
+                # Verwende shade_idx modulo len(shades) anstatt shades[-1]
+                color = shades[shade_idx % len(shades)]
+            else:
+                color = shades[shade_idx]
+
             if isinstance(group, (MultiPolygon)):
                 geoms = [group]
             else:
@@ -54,6 +67,7 @@ def render_polygons_to_pil_image(
                 if not getattr(poly, "is_empty", False):
                     flat_polys.append(poly)
                     flat_colors.append(color)
+
 
     fig = plt.figure(figsize=(fig_w_inch, fig_h_inch), dpi=dpi)
     ax = fig.add_subplot(111)

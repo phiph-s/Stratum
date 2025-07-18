@@ -4,8 +4,11 @@ from PIL import Image
 import numpy as np
 from skimage.color import rgb2lab
 
+from lib.utils import timed
+
 TRANSMISSION_TO_BLEND_FACTOR = 0.1
 
+@timed
 def segment_to_shades(source_image: Image, filament_shades):
     # Convert to RGBA to handle transparency
     rgba = np.asarray(source_image.convert('RGBA'), dtype=float)
@@ -43,10 +46,9 @@ def segment_to_shades(source_image: Image, filament_shades):
 
     print(f"Shades used: {np.unique(nearest)}")
     print(f"Transparent pixels preserved: {np.sum(transparent_mask)}")
-
     return Image.fromarray(seg_rgba, mode='RGBA')
 
-
+@timed
 def generate_shades_td(filament_order, td_values, max_layer_values, layer_height):
     """
     Generate printable shades for a sequence of filaments using Transmission Distance (TD).

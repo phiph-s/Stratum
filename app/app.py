@@ -25,6 +25,10 @@ class StratumApp:
         self.rendered_image_size = None
         self.filament_shades = None
         self.rendered_image = None
+        self.last_input_colors = []
+        # Live preview state
+        self.live_preview_enabled = False
+        self.live_preview_segmented = None
         # Initialize filament manager
         self.filament_manager = FilamentManager()
 
@@ -49,6 +53,7 @@ class StratumApp:
         self.detail_mode = None
         self.redraw_button = None
         self.export_button = None
+        self.live_preview_checkbox = None
 
     def open_edit(self, idx):
         self.editing_idx = idx
@@ -72,56 +77,55 @@ class StratumApp:
             layer_info = analysis_result['layer']
             layer_idx = layer_info['layer_index']
             if self.filament_shades:
-                try:
-                    import numpy as np
-                    all_shades_present = []
-                    shade_labels = []
-                    true_colors = []
-                    shade = layer_info['filaments'][0]['shade_index']
-                    for i in reversed(range(shade + 1)):
-                        all_shades_present.append(self.filament_shades[layer_idx][i])
-                        shade_labels.append(f"{layer_idx + 1}, {i + 1}")
-                        true_colors.append(self.filament_shades[layer_idx][-1])
-                    for i in reversed(range(layer_idx)):
-                        for j in reversed(range(len(self.filament_shades[i]))):
-                            all_shades_present.append(self.filament_shades[i][j])
-                            shade_labels.append(f"{i + 1}, {j + 1}")
-                            true_colors.append(self.filament_shades[i][-1])
-                    for i in reversed(range(self.base_input.value - 1)):
-                        all_shades_present.append(self.filament_shades[0][0])
-                        shade_labels.append(f"1, {i + 2}")
-                        true_colors.append(self.filament_shades[0][-1])
-                    if all_shades_present:
-                        with ui.matplotlib(figsize=(3, 3.5), facecolor=(0,0,0,0)).figure as fig:
-                            ax = fig.gca()
-                            y_positions = np.arange(len(all_shades_present))
-                            shaded_colors_normalized = [(r/255, g/255, b/255) for r, g, b in all_shades_present]
-                            true_colors_normalized = [(r/255, g/255, b/255) for r, g, b in true_colors]
-                            bar_width = 0.5
-                            ax.barh(y_positions, [bar_width]*len(all_shades_present), left=[0]*len(all_shades_present), color=shaded_colors_normalized, edgecolor='black', linewidth=0.5, label='calculated color')
-                            ax.barh(y_positions, [bar_width]*len(all_shades_present), left=[bar_width]*len(all_shades_present), color=true_colors_normalized, edgecolor='black', linewidth=0.5, label='true filament color')
-                            ax.set_yticks(y_positions)
-                            ax.set_yticklabels(shade_labels)
-                            ax.set_xlim(0, 1)
-                            ax.set_xticks([0.25, 0.75])
-                            ax.set_xticklabels(['Calculated', 'True Color'])
-                            ax.set_facecolor((0, 0, 0, 0))
-                            ax.spines['top'].set_visible(False)
-                            ax.spines['right'].set_visible(False)
-                            ax.spines['left'].set_color('white')
-                            ax.spines['bottom'].set_visible(False)
-                            ax.tick_params(axis='y', colors='white')
-                            ax.tick_params(axis='x', colors='white')
-                            ax.invert_yaxis()
-                            if len(all_shades_present) <= 15:
-                                for i, (shaded_rgb, true_rgb) in enumerate(zip(all_shades_present, true_colors)):
-                                    shaded_text = f"({shaded_rgb[0]}, {shaded_rgb[1]}, {shaded_rgb[2]})"
-                                    ax.text(0.25, i, shaded_text, ha='center', va='center', fontweight='bold', fontsize=8, color='white' if sum(shaded_rgb) < 384 else 'black')
-                                    true_text = f"({true_rgb[0]}, {true_rgb[1]}, {true_rgb[2]})"
-                                    ax.text(0.75, i, true_text, ha='center', va='center', fontweight='bold', fontsize=8, color='white' if sum(true_rgb) < 384 else 'black')
-                            fig.tight_layout()
-                except Exception as e:
-                    ui.markdown(f"**Error creating plot:** {str(e)}")
+                import numpy as np
+                all_shades_present = []
+                shade_labels = []
+                shade = layer_info['filaments'][0]['shade_index']
+                true_colors = []
+
+                for i in reversed(range(shade + 1)):
+                    all_shades_present.append(self.filament_shades[layer_idx][i])
+                    shade_labels.append(f"{layer_idx + 1}, {i + 1}")
+                    true_colors.append(self.last_input_colors[layer_idx])
+                for i in reversed(range(layer_idx)):
+                    for j in reversed(range(len(self.filament_shades[i]))):
+                        all_shades_present.append(self.filament_shades[i][j])
+                        shade_labels.append(f"{i + 1}, {j + 1}")
+                        true_colors.append(self.last_input_colors[i])
+                for i in reversed(range(self.base_input.value - 1)):
+                    all_shades_present.append(self.filament_shades[0][0])
+                    shade_labels.append(f"1, {i + 2}")
+                    true_colors.append(self.last_input_colors[0])
+                print(true_colors, self.last_input_colors)
+                if all_shades_present:
+                    with ui.matplotlib(figsize=(3, 3.5), facecolor=(0,0,0,0)).figure as fig:
+                        ax = fig.gca()
+                        y_positions = np.arange(len(all_shades_present))
+                        shaded_colors_normalized = [(r/255, g/255, b/255) for r, g, b in all_shades_present]
+                        true_colors_normalized = [(r/255, g/255, b/255) for r, g, b in true_colors]
+                        bar_width = 0.5
+                        ax.barh(y_positions, [bar_width]*len(all_shades_present), left=[0]*len(all_shades_present), color=shaded_colors_normalized, edgecolor='black', linewidth=0.5, label='calculated color')
+                        ax.barh(y_positions, [bar_width]*len(all_shades_present), left=[bar_width]*len(all_shades_present), color=true_colors_normalized, edgecolor='black', linewidth=0.5, label='true filament color')
+                        ax.set_yticks(y_positions)
+                        ax.set_yticklabels(shade_labels)
+                        ax.set_xlim(0, 1)
+                        ax.set_xticks([0.25, 0.75])
+                        ax.set_xticklabels(['Calculated', 'True Color'])
+                        ax.set_facecolor((0, 0, 0, 0))
+                        ax.spines['top'].set_visible(False)
+                        ax.spines['right'].set_visible(False)
+                        ax.spines['left'].set_color('white')
+                        ax.spines['bottom'].set_visible(False)
+                        ax.tick_params(axis='y', colors='white')
+                        ax.tick_params(axis='x', colors='white')
+                        ax.invert_yaxis()
+                        if len(all_shades_present) <= 15:
+                            for i, (shaded_rgb, true_rgb) in enumerate(zip(all_shades_present, true_colors)):
+                                shaded_text = f"({shaded_rgb[0]}, {shaded_rgb[1]}, {shaded_rgb[2]})"
+                                ax.text(0.25, i, shaded_text, ha='center', va='center', fontweight='bold', fontsize=8, color='white' if sum(shaded_rgb) < 384 else 'black')
+                                true_text = f"({true_rgb[0]}, {true_rgb[1]}, {true_rgb[2]})"
+                                ax.text(0.75, i, true_text, ha='center', va='center', fontweight='bold', fontsize=8, color='white' if sum(true_rgb) < 384 else 'black')
+                        fig.tight_layout()
             else:
                 ui.markdown("**No material at this position**")
 
@@ -131,11 +135,8 @@ class StratumApp:
             return
         click_x = e.image_x
         click_y = e.image_y
-        try:
-            analysis = analyze_position_rgb(click_x, click_y, self.rendered_image, self.filament_shades)
-            self.show_position_info(analysis)
-        except Exception as ex:
-            ui.notify(f'Error analyzing position: {str(ex)}', color='red')
+        analysis = analyze_position_rgb(click_x, click_y, self.rendered_image, self.filament_shades)
+        self.show_position_info(analysis)
 
     def update_filament_list(self):
         self.filament_container.clear()
@@ -223,10 +224,16 @@ class StratumApp:
             item = self.filaments.pop(old)
             self.filaments.insert(new, item)
         self.update_filament_list()
+        # Trigger live preview update
+        if self.live_preview_enabled:
+            asyncio.create_task(self.update_live_preview())
 
     def remove_filament(self, idx):
         self.filaments.pop(idx)
         self.update_filament_list()
+        # Trigger live preview update
+        if self.live_preview_enabled:
+            asyncio.create_task(self.update_live_preview())
 
     def add_filament_from_manager(self, filament):
         """Add a filament from the filament manager to the project"""
@@ -236,6 +243,9 @@ class StratumApp:
         self.filaments.append(filament)
         self.update_filament_list()
         ui.notify('Filament added to project', color='green')
+        # Trigger live preview update
+        if self.live_preview_enabled:
+            asyncio.create_task(self.update_live_preview())
 
     def open_filament_edit(self, idx):
         """Open edit dialog for filament max_layers"""
@@ -352,6 +362,7 @@ class StratumApp:
         colors = []
         max_layers = []
         td_values = []
+        self.last_input_colors = []
         for f in self.filaments:
             manager_id = f.get('id', None)
             data = f.get('copied_data', {})
@@ -359,7 +370,9 @@ class StratumApp:
                 f_data, _ = self.filament_manager.find_filament_by_id(manager_id)  # Ensure the filament is in the manager
                 if f_data: data = f_data
             color = data.get('color', '#000000')
-            colors.append(tuple(int(color[i:i + 2], 16) for i in (1, 3, 5)))
+            color = tuple(int(color[i:i + 2], 16) for i in (1, 3, 5))
+            self.last_input_colors.append(color)
+            colors.append(color)
             # Use instance max_layers (takes precedence over manager value)
             instance_max_layers = f.get('max_layers', data.get('max_layers', 5))
             max_layers.append(instance_max_layers)
@@ -547,7 +560,7 @@ class StratumApp:
                             self.progress_bar.visible = False
 
                         with ui.expansion('Export settings', icon='settings').classes('bg-gray-700 border-t border-gray-900  w-64 p-0'):
-                            self.layer_input = ui.number(label='Layer height (mm)', value=0.12, format='%.2f', step=0.02, min=0.001, max=10).classes(
+                            self.layer_input = ui.number(label='Layer height (mm)', value=0.12, format='%.2f', step=0.02, min=0.001, max=10, on_change=self.on_layer_height_change).classes(
                                 'w-full')
                             self.base_input = ui.number(label='Base layers', value=3, format='%d', min=1, max=999).props(
                                 'icon=layers').classes('w-full')
@@ -575,6 +588,9 @@ class StratumApp:
                 self.image_component.visible = False
 
                 with self.image_component:
+                    # Live preview checkbox in top left corner
+                    self.live_preview_checkbox = ui.checkbox('Live Preview', value=False, on_change=lambda e: self.toggle_live_preview(e.value)).classes('fixed top-4 left-4 z-50 bg-black bg-opacity-50 text-white p-2 rounded').tooltip('Enable live preview mode for faster updates')
+
                     def reset_image():
                         self.original_image = None
                         self.segmented_image = None
@@ -582,6 +598,7 @@ class StratumApp:
                         self.rendered_image_size = None
                         self.filament_shades = None
                         self.rendered_image = None
+                        self.live_preview_segmented = None
                         self.placeholder.visible = True
                         self.image_component.visible = False
 
@@ -599,4 +616,85 @@ class StratumApp:
         """Update max_layers value for a filament directly from the UI input"""
         if 0 <= idx < len(self.filaments):
             self.filaments[idx]['max_layers'] = new_value
-            #ui.notify(f'Max layers updated to {new_value}', color='green')
+            # Trigger live preview update
+            if self.live_preview_enabled:
+                asyncio.create_task(self.update_live_preview())
+
+    async def update_live_preview(self):
+        """Update live preview using only generate_shades_td and segment_to_shades"""
+        if self.original_image is None or len(self.filaments) < 2:
+            return
+
+        try:
+            # Extract filament data
+            colors = []
+            max_layers = []
+            td_values = []
+            self.last_input_colors = []
+            for f in self.filaments:
+                manager_id = f.get('id', None)
+                data = f.get('copied_data', {})
+                if manager_id is not None:
+                    f_data, _ = self.filament_manager.find_filament_by_id(manager_id)
+                    if f_data:
+                        data = f_data
+                color = data.get('color', '#000000')
+                color = tuple(int(color[i:i + 2], 16) for i in (1, 3, 5))
+                colors.append(color)
+                self.last_input_colors.append(color)
+                instance_max_layers = f.get('max_layers', data.get('max_layers', 5))
+                max_layers.append(instance_max_layers)
+                td_values.append(data.get('td_value', 0.5))
+
+            def compute_live_preview():
+                shades = generate_shades_td(colors, td_values, max_layers, float(self.layer_input.value))
+                segmented = segment_to_shades(self.original_image, shades)
+                return segmented, shades
+
+            loop = asyncio.get_running_loop()
+            self.live_preview_segmented, self.filament_shades = await loop.run_in_executor(None, compute_live_preview)
+
+            # Update image display
+            buf = io.BytesIO()
+            self.live_preview_segmented.save(buf, format='PNG')
+            data = base64.b64encode(buf.getvalue()).decode()
+            self.image_component.set_source(f'data:image/png;base64,{data}')
+            self.rendered_image = self.live_preview_segmented
+
+            # Keep export button disabled for live preview
+            self.export_button.disable()
+
+        except Exception as e:
+            ui.notify(f'Live preview error: {str(e)}', color='orange')
+
+    def toggle_live_preview(self, enabled):
+        """Toggle live preview mode"""
+        self.live_preview_enabled = enabled
+        if enabled:
+            # Switch to live preview mode
+            if self.original_image and len(self.filaments) >= 2:
+                asyncio.create_task(self.update_live_preview())
+            # Disable export button in live preview mode
+            self.export_button.disable()
+        else:
+            # Switch back to original image or last full render
+            if self.rendered_image:
+                # Show last full render
+                buf = io.BytesIO()
+                self.rendered_image.save(buf, format='PNG')
+                data = base64.b64encode(buf.getvalue()).decode()
+                self.image_component.set_source(f'data:image/png;base64,{data}')
+                # Enable export if we have polygons
+                if self.polygons:
+                    self.export_button.enable()
+            elif self.original_image:
+                # Show original image
+                buf = io.BytesIO()
+                self.original_image.save(buf, format='PNG')
+                data = base64.b64encode(buf.getvalue()).decode()
+                self.image_component.set_source(f'data:image/png;base64,{data}')
+
+    def on_layer_height_change(self, e):
+        """Handle layer height changes and trigger live preview"""
+        if self.live_preview_enabled:
+            asyncio.create_task(self.update_live_preview())

@@ -44,7 +44,7 @@ def create_layered_polygons_parallel(
     tasks = []
     for fi in range(len(shades)):
         cnt = counts_map[fi]
-        for L in range(1, len(np.unique(cnt)) + 1):
+        for L in range(1, len(shades[fi]) + 1):
             mask_L = cnt >= L
             tasks.append(((fi, L), mask_L, h_px, min_area, simplify_tol, marching_squares_level))
 
@@ -67,8 +67,7 @@ def create_layered_polygons_parallel(
     polys_list = []
     for fi in range(len(shades)):
         poly_list = [polys_map.get(fi, {}).get(L, []) for L in range(1, len(shades[fi]) + 1)]
-        if any(poly_list):
-            polys_list.append(poly_list)
+        polys_list.append(poly_list)
 
     return polys_list
 
