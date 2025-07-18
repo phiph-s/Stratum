@@ -38,4 +38,4 @@ if '--browser' in sys.argv:
     ui.run(native=False, reload=reload)
 else:
     app.native.window_args['confirm_close'] = True
-    ui.run(native=True, window_size=(1480, 900), reload=reload)
+    ui.run(native=True, title="Stratum", window_size=(1480, 900), reload=reload)

@@ -620,7 +620,7 @@ class StratumApp:
                         self.live_preview_checkbox = ui.checkbox('Live Preview', value=True, on_change=lambda e: self.toggle_live_preview(e.value)).tooltip('Enable live preview mode for faster updates')
                         ui.button(icon='fit_screen', on_click=self.image_component.reset_transform).tooltip("Recenter preview").props("flat round")
 
-                with ui.row().classes("fixed top-4 left-64 right-72 ml-4 mr-4"):
+                with ui.row().classes("fixed top-4 "):
                     with ui.row().classes("flex-grow justify-center p-2"):
                         self.status_banner = ui.label().classes('z-50 text-sm rounded p-2')
                         self.status_banner.set_visibility(False)
