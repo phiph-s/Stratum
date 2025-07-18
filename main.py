@@ -34,4 +34,6 @@ if '-p' in sys.argv or '--project' in sys.argv:
 # --browser
 if '--browser' in sys.argv:
     ui.run(native=False, reload=True)
-ui.run(native=True, window_size=(1480, 900), reload=False)
+else:
+    app.native.window_args['confirm_close'] = True
+    ui.run(native=True, window_size=(1480, 900), reload=False)

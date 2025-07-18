@@ -2,6 +2,7 @@ from nicegui import app,ui
 from lib.mask_creation import segment_to_shades, generate_shades_td
 from lib.filament_manager import FilamentManager
 from PIL import Image
+from app.components.zoomable_image import ZoomableImage
 import io
 import asyncio
 import base64
@@ -572,7 +573,7 @@ class StratumApp:
 
 
             # Main area
-            with ui.column().classes('flex-auto items-center justify-center p-4 overflow-y-auto h-full'):
+            with ui.column().classes('flex-auto items-center justify-center p-4 overflow-y-auto h-full') as main_area:
                 self.placeholder = ui.column().classes('items-center justify-center h-full gap-4 w-80').style('display: flex;')
                 with self.placeholder:
                     ui.markdown('**No image loaded**').classes('text-gray-500')
@@ -585,26 +586,32 @@ class StratumApp:
                         # arrow to the left
                         ui.icon('arrow_right').classes('text-gray-500 text-2xl')
 
-                self.image_component = ui.interactive_image(cross='blue', events=['mousedown'], on_mouse=lambda e: self.handle_image_click(e)).classes('max-h-full')
-                self.image_component.props('fit=scale-down')
-                self.image_component.visible = False
+                #self.image_component = ui.interactive_image(cross='blue', events=['mousedown'], on_mouse=lambda e: self.handle_image_click(e)).classes('max-h-full')
+                #self.image_component.props('fit=scale-down')
+                #self.image_component.visible = False
 
-                with self.image_component:
-                    # Live preview checkbox in top left corner
-                    self.live_preview_checkbox = ui.checkbox('Live Preview', value=False, on_change=lambda e: self.toggle_live_preview(e.value)).classes('fixed top-4 left-64 ml-4 z-50 bg-black bg-opacity-50 text-white p-2 rounded').tooltip('Enable live preview mode for faster updates')
+                self.image_component = ZoomableImage(
+                    src='/static/photo.jpg',
+                    max_width='100%',
+                    max_height='100%',
+                    #on_pixel=show_pixel,
+                ).classes('w-full h-full')
 
-                    def reset_image():
-                        self.original_image = None
-                        self.segmented_image = None
-                        self.polygons = None
-                        self.rendered_image_size = None
-                        self.filament_shades = None
-                        self.rendered_image = None
-                        self.live_preview_segmented = None
-                        self.placeholder.visible = True
-                        self.image_component.visible = False
+                # Live preview checkbox in top left corner
+                self.live_preview_checkbox = ui.checkbox('Live Preview', value=False, on_change=lambda e: self.toggle_live_preview(e.value)).classes('fixed top-4 left-64 ml-4 z-50 bg-black bg-opacity-50 text-white p-2 rounded').tooltip('Enable live preview mode for faster updates')
 
-                    ui.button(icon='cleaning_services', on_click=reset_image).props('flat round').classes('fixed bottom-4 right-4 z-50').tooltip('Reset')
+                def reset_image():
+                    self.original_image = None
+                    self.segmented_image = None
+                    self.polygons = None
+                    self.rendered_image_size = None
+                    self.filament_shades = None
+                    self.rendered_image = None
+                    self.live_preview_segmented = None
+                    self.placeholder.visible = True
+                    self.image_component.visible = False
+
+                ui.button(icon='cleaning_services', on_click=reset_image).props('flat round').classes('fixed bottom-4 right-4 z-50').tooltip('Reset')
 
             # Position info card
             with ui.column().classes('flex-none top-0 right-0 p-4 w-72 h-full overflow-y-auto bg-neutral-900 border-l border-gray-900'):
