@@ -31,9 +31,11 @@ if '-p' in sys.argv or '--project' in sys.argv:
     project_index = sys.argv.index('-p') if '-p' in sys.argv else sys.argv.index('--project')
     project_path = sys.argv[project_index + 1]
 
+reload = True if '--reload' in sys.argv else False
+
 # --browser
 if '--browser' in sys.argv:
-    ui.run(native=False, reload=True)
+    ui.run(native=False, reload=reload)
 else:
     app.native.window_args['confirm_close'] = True
-    ui.run(native=True, window_size=(1480, 900), reload=False)
+    ui.run(native=True, window_size=(1480, 900), reload=reload)

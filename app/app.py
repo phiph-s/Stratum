@@ -10,7 +10,7 @@ import zipfile
 import json
 import matplotlib.backends.backend_svg
 
-from lib.mesh_generator import analyze_position_rgb, create_layered_polygons_parallel, render_polygons_to_pil_image, \
+from lib.mesh_generator import create_layered_polygons_parallel, render_polygons_to_pil_image, \
     polygons_to_meshes_parallel
 
 
@@ -26,6 +26,7 @@ class StratumApp:
         self.rendered_image_size = None
         self.filament_shades = None
         self.rendered_image = None
+        self.status_banner = None
         self.last_input_colors = []
         # Live preview state
         self.live_preview_enabled = True
@@ -72,18 +73,16 @@ class StratumApp:
         self.update_filament_list()
         self.edit_dialog.close()
 
-    def show_position_info(self, analysis_result):
+    def show_position_info(self, pos, shade, layer_idx):
         self.position_info_content.clear()
+        print(pos, shade, layer_idx)
         with self.position_info_content:
-            pos_x, pos_y = analysis_result['position_px']
+            pos_x, pos_y = pos
             ui.markdown(f"**Position:** {pos_x:.0f}, {pos_y:.0f} px")
-            layer_info = analysis_result['layer']
-            layer_idx = layer_info['layer_index']
             if self.filament_shades:
                 import numpy as np
                 all_shades_present = []
                 shade_labels = []
-                shade = layer_info['filaments'][0]['shade_index']
                 true_colors = []
 
                 for i in reversed(range(shade + 1)):
@@ -136,10 +135,22 @@ class StratumApp:
         if not self.rendered_image or not self.filament_shades:
             ui.notify('Generate the preview first', color='orange')
             return
-        click_x = e.image_x
-        click_y = e.image_y
-        analysis = analyze_position_rgb(click_x, click_y, self.rendered_image, self.filament_shades)
-        self.show_position_info(analysis)
+        r,g,b = e.args['detail']['rgb']['r'], e.args['detail']['rgb']['g'], e.args['detail']['rgb']['b']
+        x,y = e.args['detail']['coords']['x'], e.args['detail']['coords']['y']
+
+        def get_layer_and_shade(r,g,b):
+            # get shade with rgb value
+            for layer_idx, shades in enumerate(self.filament_shades):
+                for shade_idx, shade in enumerate(shades):
+                    if shade == (r, g, b):
+                        clicked_shadeid = shade_idx
+                        clicked_layerid = layer_idx
+                        return clicked_shadeid , clicked_layerid
+            return None, None
+
+        clicked_shadeid, clicked_layerid = get_layer_and_shade(r,g,b)
+
+        self.show_position_info((x, y), clicked_shadeid, clicked_layerid)
 
     def update_filament_list(self):
         self.filament_container.clear()
@@ -448,6 +459,12 @@ class StratumApp:
         self.progress_bar.visible = False
         self.redraw_button.enable()
         self.export_button.enable()
+        self.status_banner.set_text("Fully rendered preview")
+        self.status_banner.clear()
+        with self.status_banner:
+            ui.tooltip("This preview is fully rendered and ready for export.")
+        self.status_banner.style('background-color: rgba(0,204,0,0.75); color:black;')
+        self.status_banner.set_visibility(True)
 
     async def on_export(self):
         if not self.polygons:
@@ -592,13 +609,9 @@ class StratumApp:
                         # arrow to the left
                         ui.icon('arrow_right').classes('text-gray-500 text-2xl')
 
-                #self.image_component = ui.interactive_image(cross='blue', events=['mousedown'], on_mouse=lambda e: self.handle_image_click(e)).classes('max-h-full')
-                #self.image_component.props('fit=scale-down')
-                #self.image_component.visible = False
-
                 self.image_component = ZoomableImage(
                     src='/static/photo.jpg',
-                    #on_pixel=show_pixel,
+                    on_pixel=self.handle_image_click,
                 ).classes('w-full h-full')
 
                 with ui.row().classes("fixed top-4 left-64 right-72 ml-4 mr-4"):
@@ -606,9 +619,11 @@ class StratumApp:
                     with ui.row().classes("z-50 text-white p-2 rounded").style("background-color: rgba(0, 0, 0, 0.75);"):
                         self.live_preview_checkbox = ui.checkbox('Live Preview', value=True, on_change=lambda e: self.toggle_live_preview(e.value)).tooltip('Enable live preview mode for faster updates')
                         ui.button(icon='fit_screen', on_click=self.image_component.reset_transform).tooltip("Recenter preview").props("flat round")
-                    # align next item center
-                    with ui.row().classes("flex-grow justify-center"):
-                        ...
+
+                with ui.row().classes("fixed top-4 left-64 right-72 ml-4 mr-4"):
+                    with ui.row().classes("flex-grow justify-center p-2"):
+                        self.status_banner = ui.label().classes('z-50 text-sm rounded p-2')
+                        self.status_banner.set_visibility(False)
 
                 def reset_image():
                     self.original_image = None
@@ -694,6 +709,13 @@ class StratumApp:
 
                 # Keep export button disabled for live preview
                 self.export_button.disable()
+
+                self.status_banner.set_text("Live preview")
+                self.status_banner.clear()
+                with self.status_banner:
+                    ui.tooltip("The preview you see might not be fully accurate, use 'Redraw' to generate a full preview.")
+                self.status_banner.style('background-color: rgba(204, 102, 0,0.75); color:white;')
+                self.status_banner.set_visibility(True)
 
             except Exception as e:
                 ui.notify(f'Live preview error: {str(e)}', color='orange')
