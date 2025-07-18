@@ -107,4 +107,3 @@ if __name__ == "__main__":
         for layers, color in zip(range(len(s)), s,):
             print(f"  {layers+1} Schicht(en) → RGB{color}")
 
-    print(shades)

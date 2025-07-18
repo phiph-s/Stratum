@@ -75,7 +75,6 @@ class StratumApp:
 
     def show_position_info(self, pos, shade, layer_idx):
         self.position_info_content.clear()
-        print(pos, shade, layer_idx)
         with self.position_info_content:
             pos_x, pos_y = pos
             ui.markdown(f"**Position:** {pos_x:.0f}, {pos_y:.0f} px")
@@ -98,7 +97,6 @@ class StratumApp:
                     all_shades_present.append(self.filament_shades[0][0])
                     shade_labels.append(f"1, {i + 2}")
                     true_colors.append(self.last_input_colors[0])
-                print(true_colors, self.last_input_colors)
                 if all_shades_present:
                     with ui.matplotlib(figsize=(3, 3.5), facecolor=(0,0,0,0)).figure as fig:
                         ax = fig.gca()
@@ -154,7 +152,6 @@ class StratumApp:
 
     def update_filament_list(self):
         self.filament_container.clear()
-        print("filaments:", self.filaments)
         for idx, f in enumerate(reversed(self.filaments)):
             real_idx = len(self.filaments) - 1 - idx
 
@@ -474,6 +471,7 @@ class StratumApp:
         self.progress_bar.value = 0
         self.progress_bar.visible = True
         with zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+            print(f"polygons: {len(self.polygons)}")
             meshes = polygons_to_meshes_parallel(
                 self.segmented_image,
                 self.polygons,
@@ -482,6 +480,7 @@ class StratumApp:
                 base_layers=int(self.base_input.value),
                 progress_cb=lambda v: setattr(self.progress_bar, 'value', v)
             )
+            print(f"meshes: {len(meshes)}")
             for idx, mesh in enumerate(meshes):
                 stl_buf = io.BytesIO()
                 mesh.export(file_obj=stl_buf, file_type='stl')

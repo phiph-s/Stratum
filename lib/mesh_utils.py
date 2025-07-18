@@ -23,7 +23,7 @@ def generate_layer_mesh(polygons, thickness):
             continue
         m = trimesh.creation.extrude_polygon(poly, thickness)
         meshes.append(m)
-    return trimesh.util.concatenate(meshes) if meshes else None
+    return trimesh.util.concatenate(meshes) if meshes else trimesh.Trimesh()
 
 
 @timed
@@ -80,8 +80,7 @@ def _generate_base_mesh(segmented_image, layer_height=0.2, base_layers=4, target
     base_rect = Polygon([(0, 0), (w_px, 0), (w_px, h_px), (0, h_px)])
     base_poly = flip_polygons_vertically([base_rect], h_px)
     base_mesh = generate_layer_mesh(base_poly, base_height)
-    if base_mesh:
+    if base_mesh and len(base_mesh.vertices) > 0:
         base_mesh.apply_scale([scale_xy, scale_xy, 1])
         return base_mesh, base_height
-    return None, 0
-
+    return trimesh.Trimesh(), 0
