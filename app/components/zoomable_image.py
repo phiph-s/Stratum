@@ -10,8 +10,6 @@ class ZoomableImage(Element, component='zoomable_image.vue'):
         self,
         *,
         src: str | None = None,
-        max_width: str | int | None = None,
-        max_height: str | int | None = None,
         on_pixel: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> None:
         super().__init__()
@@ -19,10 +17,6 @@ class ZoomableImage(Element, component='zoomable_image.vue'):
         # Forward initial props to the Vue component
         if src:
             self._props['src'] = src
-        if max_width is not None:
-            self._props['maxWidth'] = str(max_width)
-        if max_height is not None:
-            self._props['maxHeight'] = str(max_height)
 
         # Register Python-side event handler
         self.on('pixel', on_pixel)

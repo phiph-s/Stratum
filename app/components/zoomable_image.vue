@@ -1,13 +1,15 @@
 <template>
   <div
     ref="container"
-    class="w-full h-full overflow-hidden select-none relative"
+    class="viewer-container w-full h-full overflow-hidden select-none relative"
+    :style="containerStyle"
     @wheel="onWheel"
     @mousedown="onMouseDown"
     @click="onClick"
   >
     <img
       ref="img"
+      style="max-width: none; max-height: none;"
       :src="src"
       :style="imgStyle"
       @load="onImgLoad"
@@ -22,8 +24,6 @@ export default {
   name: 'ZoomableImage',
   props: {
     src: { type: String, required: true },
-    maxWidth: { type: [String, Number], default: undefined },
-    maxHeight: { type: [String, Number], default: undefined },
   },
   data() {
     return {
@@ -37,18 +37,29 @@ export default {
     };
   },
   computed: {
+    // Background checkerboard pattern
+    containerStyle() {
+      return {
+        backgroundColor: '#8a8a8a',
+        backgroundImage:
+          'linear-gradient(45deg, #666 25%, transparent 25%, transparent 75%, #666 75%, #666), ' +
+          'linear-gradient(45deg, #666 25%, transparent 25%, transparent 75%, #666 75%, #666)',
+        backgroundSize: '20px 20px',
+        backgroundPosition: '0 0, 10px 10px',
+      };
+    },
+    // Transform & sizing for <img>
     imgStyle() {
       return {
         transform: `translate(${this.translate.x}px, ${this.translate.y}px) scale(${this.scale})`,
         transformOrigin: '0 0',
-        maxWidth: this.maxWidth ?? 'none',
-        maxHeight: this.maxHeight ?? 'none',
         userSelect: 'none',
         pointerEvents: 'none',
       };
     },
   },
   watch: {
+    // When src is changed externally via prop, delegate to setSrc so we keep state
     src(newVal) {
       this.setSrc(newVal);
     },
@@ -57,12 +68,22 @@ export default {
     if (this.$refs.img.complete) this.onImgLoad();
   },
   methods: {
-    /** Utils */
-    clamp(v, min, max) { return Math.min(Math.max(v, min), max); },
+    /* ---------------------------------------
+     * Utility helpers
+     * -------------------------------------*/
+    clamp(v, min, max) {
+      return Math.min(Math.max(v, min), max);
+    },
     redrawCanvas() {
       const ctx = this.$refs.canvas.getContext('2d');
       ctx.clearRect(0, 0, this.naturalSize.w, this.naturalSize.h);
-      ctx.drawImage(this.$refs.img, 0, 0, this.naturalSize.w, this.naturalSize.h);
+      ctx.drawImage(
+        this.$refs.img,
+        0,
+        0,
+        this.naturalSize.w,
+        this.naturalSize.h,
+      );
     },
     computeClickData(evt) {
       const rect = this.$refs.container.getBoundingClientRect();
@@ -70,39 +91,77 @@ export default {
       const cy = evt.clientY - rect.top;
       const ix = (cx - this.translate.x) / this.scale;
       const iy = (cy - this.translate.y) / this.scale;
-      if (ix < 0 || iy < 0 || ix >= this.naturalSize.w || iy >= this.naturalSize.h) return null;
-      const pixel = this.$refs.canvas.getContext('2d').getImageData(Math.floor(ix), Math.floor(iy), 1, 1).data;
+      if (
+        ix < 0 ||
+        iy < 0 ||
+        ix >= this.naturalSize.w ||
+        iy >= this.naturalSize.h
+      )
+        return null;
+      const pixel = this.$refs.canvas
+        .getContext('2d')
+        .getImageData(Math.floor(ix), Math.floor(iy), 1, 1).data;
       return {
         coords: { x: Math.floor(ix), y: Math.floor(iy) },
         rgb: { r: pixel[0], g: pixel[1], b: pixel[2], a: pixel[3] },
       };
     },
+    /* ---------------------------------------
+     * Fitting & centering
+     * -------------------------------------*/
     fitImage() {
       const rect = this.$refs.container.getBoundingClientRect();
-      const scaleX = rect.width / this.naturalSize.w;
-      const scaleY = rect.height / this.naturalSize.h;
+      // If the container has not been laid out yet (width/height 0) defer until next tick
+      if (!rect.width || !rect.height) {
+        this.$nextTick(this.fitImage);
+        return;
+      }
+
+      const paddingX = rect.width * 0.10;
+      const paddingY = rect.height * 0.10;
+      const innerW = rect.width - paddingX * 2;
+      const innerH = rect.height - paddingY * 2;
+
+      const scaleX = innerW / this.naturalSize.w;
+      const scaleY = innerH / this.naturalSize.h;
       this.scale = Math.min(scaleX, scaleY, 1);
-      this.translate.x = (rect.width - this.naturalSize.w * this.scale) / 2;
-      this.translate.y = (rect.height - this.naturalSize.h * this.scale) / 2;
+
+      // center inside the padded area
+      this.translate.x = paddingX + (innerW - this.naturalSize.w * this.scale) / 2;
+      this.translate.y = paddingY + (innerH - this.naturalSize.h * this.scale) / 2;
     },
-    /** Lifecycle-related */
+    /* ---------------------------------------
+     * Lifecycle
+     * -------------------------------------*/
     onImgLoad() {
-      this.naturalSize = { w: this.$refs.img.naturalWidth, h: this.$refs.img.naturalHeight };
-      this.$refs.canvas.width  = this.naturalSize.w;
+      this.naturalSize = {
+        w: this.$refs.img.naturalWidth,
+        h: this.$refs.img.naturalHeight,
+      };
+      this.$refs.canvas.width = this.naturalSize.w;
       this.$refs.canvas.height = this.naturalSize.h;
       this.redrawCanvas();
-
-      // auto-fit only on first load or after explicit reset
-      if (this.scale === 1 && this.translate.x === 0 && this.translate.y === 0) {
+      // If view is untouched (initial or after reset), re‑center
+      if (
+        this.scale === 1 &&
+        this.translate.x === 0 &&
+        this.translate.y === 0
+      ) {
         this.fitImage();
       }
     },
-    /** Interaction handlers */
+    /* ---------------------------------------
+     * Interaction handlers
+     * -------------------------------------*/
     onWheel(evt) {
       evt.preventDefault();
       const delta = -evt.deltaY || evt.wheelDelta || -evt.detail;
       const zoom = delta > 0 ? 1.1 : 0.9;
-      const newScale = this.clamp(this.scale * zoom, this.minScale, this.maxScale);
+      const newScale = this.clamp(
+        this.scale * zoom,
+        this.minScale,
+        this.maxScale,
+      );
       const rect = this.$refs.container.getBoundingClientRect();
       const cx = evt.clientX - rect.left;
       const cy = evt.clientY - rect.top;
@@ -132,25 +191,29 @@ export default {
     onClick(evt) {
       const data = this.computeClickData(evt);
       if (data) {
-        this.$refs.container.dispatchEvent(new CustomEvent('pixel', { detail: data }));
+        this.$refs.container.dispatchEvent(
+          new CustomEvent('pixel', { detail: data }),
+        );
       }
     },
-    /** Methods callable from Python side via run_method */
+    /* ---------------------------------------
+     * Methods callable from Python side
+     * -------------------------------------*/
     setSrc(newSrc) {
       this.$refs.img.src = newSrc;
-      // wait for load event to redraw
+      // load event will fire and redraw
     },
     reset() {
       this.scale = 1;
       this.translate = { x: 0, y: 0 };
-      if (this.$refs.img.complete) this.fitImage();
-    },
+      this.fitImage();
+    }
   },
 };
 </script>
 
 <style scoped>
-img {
+.viewer-container img {
   display: block;
 }
 </style>

@@ -28,7 +28,7 @@ class StratumApp:
         self.rendered_image = None
         self.last_input_colors = []
         # Live preview state
-        self.live_preview_enabled = False
+        self.live_preview_enabled = True
         self.live_preview_segmented = None
         self.live_preview_updating = False
         self.live_preview_restart_pending = False
@@ -342,6 +342,12 @@ class StratumApp:
         self.project_dialog.close()
         ui.notify('Project loaded', color='green')
 
+        # check for live preview
+        if self.live_preview_enabled and not self.live_preview_updating:
+            asyncio.create_task(self.update_live_preview())
+        elif self.live_preview_enabled and self.live_preview_updating:
+            self.live_preview_restart_pending = True
+
     def handle_upload(self, files):
         self.original_image = Image.open(files.content).convert('RGBA')
         buf = io.BytesIO()
@@ -438,6 +444,7 @@ class StratumApp:
         buf = io.BytesIO()
         img.save(buf, format='PNG')
         data = base64.b64encode(buf.getvalue()).decode()
+        self.image_component.reset_transform()
         self.image_component.set_source(f'data:image/png;base64,{data}')
         self.progress_bar.visible = False
         self.redraw_button.enable()
@@ -523,7 +530,7 @@ class StratumApp:
                 ui.markdown('### Open Project')
                 ui.upload(on_upload=self.on_upload_project, label='Select project JSON', auto_upload=True).props('accept=".json"')
         # Build main UI
-        with ui.row().classes('w-full h-screen flex-nowrap'):
+        with ui.row().classes('w-full h-screen flex-nowrap gap-0'):
             # Sidebar with logo and controls
             with ui.column().classes('flex-none w-64 gap-4 overflow-y-auto h-full bg-neutral-800 text-white overflow-x-hidden'):
                 # New / Open / Save row
@@ -573,7 +580,7 @@ class StratumApp:
 
 
             # Main area
-            with ui.column().classes('flex-auto items-center justify-center p-4 overflow-y-auto h-full') as main_area:
+            with ui.column().classes('flex-auto items-center justify-center overflow-y-auto h-full') as main_area:
                 self.placeholder = ui.column().classes('items-center justify-center h-full gap-4 w-80').style('display: flex;')
                 with self.placeholder:
                     ui.markdown('**No image loaded**').classes('text-gray-500')
@@ -592,14 +599,13 @@ class StratumApp:
 
                 self.image_component = ZoomableImage(
                     src='/static/photo.jpg',
-                    max_width='100%',
-                    max_height='100%',
                     #on_pixel=show_pixel,
                 ).classes('w-full h-full')
 
-                # Live preview checkbox in top left corner
-                self.live_preview_checkbox = ui.checkbox('Live Preview', value=False, on_change=lambda e: self.toggle_live_preview(e.value)).classes('fixed top-4 left-64 ml-4 z-50 bg-black bg-opacity-50 text-white p-2 rounded').tooltip('Enable live preview mode for faster updates')
-
+                with ui.row().classes("fixed top-4 left-64 ml-4 z-50 text-white p-2 rounded").style("background-color: rgba(0, 0, 0, 0.75);"):
+                    # Live preview checkbox in top left corner
+                    self.live_preview_checkbox = ui.checkbox('Live Preview', value=True, on_change=lambda e: self.toggle_live_preview(e.value)).tooltip('Enable live preview mode for faster updates')
+                    ui.button(icon='fit_screen', on_click=self.image_component.reset_transform).tooltip("Recenter preview").props("flat round")
                 def reset_image():
                     self.original_image = None
                     self.segmented_image = None
