@@ -29,6 +29,8 @@ class StratumApp:
         # Live preview state
         self.live_preview_enabled = False
         self.live_preview_segmented = None
+        self.live_preview_updating = False
+        self.live_preview_restart_pending = False
         # Initialize filament manager
         self.filament_manager = FilamentManager()
 
@@ -589,7 +591,7 @@ class StratumApp:
 
                 with self.image_component:
                     # Live preview checkbox in top left corner
-                    self.live_preview_checkbox = ui.checkbox('Live Preview', value=False, on_change=lambda e: self.toggle_live_preview(e.value)).classes('fixed top-4 left-4 z-50 bg-black bg-opacity-50 text-white p-2 rounded').tooltip('Enable live preview mode for faster updates')
+                    self.live_preview_checkbox = ui.checkbox('Live Preview', value=False, on_change=lambda e: self.toggle_live_preview(e.value)).classes('fixed top-4 left-64 ml-4 z-50 bg-black bg-opacity-50 text-white p-2 rounded').tooltip('Enable live preview mode for faster updates')
 
                     def reset_image():
                         self.original_image = None
@@ -625,47 +627,66 @@ class StratumApp:
         if self.original_image is None or len(self.filaments) < 2:
             return
 
-        try:
-            # Extract filament data
-            colors = []
-            max_layers = []
-            td_values = []
-            self.last_input_colors = []
-            for f in self.filaments:
-                manager_id = f.get('id', None)
-                data = f.get('copied_data', {})
-                if manager_id is not None:
-                    f_data, _ = self.filament_manager.find_filament_by_id(manager_id)
-                    if f_data:
-                        data = f_data
-                color = data.get('color', '#000000')
-                color = tuple(int(color[i:i + 2], 16) for i in (1, 3, 5))
-                colors.append(color)
-                self.last_input_colors.append(color)
-                instance_max_layers = f.get('max_layers', data.get('max_layers', 5))
-                max_layers.append(instance_max_layers)
-                td_values.append(data.get('td_value', 0.5))
+        # If already updating, mark restart as pending and return
+        if self.live_preview_updating:
+            self.live_preview_restart_pending = True
+            return
 
-            def compute_live_preview():
-                shades = generate_shades_td(colors, td_values, max_layers, float(self.layer_input.value))
-                segmented = segment_to_shades(self.original_image, shades)
-                return segmented, shades
+        # Start updating
+        self.live_preview_updating = True
 
-            loop = asyncio.get_running_loop()
-            self.live_preview_segmented, self.filament_shades = await loop.run_in_executor(None, compute_live_preview)
+        while True:
+            # Clear restart pending flag at start of each iteration
+            self.live_preview_restart_pending = False
 
-            # Update image display
-            buf = io.BytesIO()
-            self.live_preview_segmented.save(buf, format='PNG')
-            data = base64.b64encode(buf.getvalue()).decode()
-            self.image_component.set_source(f'data:image/png;base64,{data}')
-            self.rendered_image = self.live_preview_segmented
+            try:
+                # Extract filament data
+                colors = []
+                max_layers = []
+                td_values = []
+                self.last_input_colors = []
+                for f in self.filaments:
+                    manager_id = f.get('id', None)
+                    data = f.get('copied_data', {})
+                    if manager_id is not None:
+                        f_data, _ = self.filament_manager.find_filament_by_id(manager_id)
+                        if f_data:
+                            data = f_data
+                    color = data.get('color', '#000000')
+                    color = tuple(int(color[i:i + 2], 16) for i in (1, 3, 5))
+                    colors.append(color)
+                    self.last_input_colors.append(color)
+                    instance_max_layers = f.get('max_layers', data.get('max_layers', 5))
+                    max_layers.append(instance_max_layers)
+                    td_values.append(data.get('td_value', 0.5))
 
-            # Keep export button disabled for live preview
-            self.export_button.disable()
+                def compute_live_preview():
+                    shades = generate_shades_td(colors, td_values, max_layers, float(self.layer_input.value))
+                    segmented = segment_to_shades(self.original_image, shades)
+                    return segmented, shades
 
-        except Exception as e:
-            ui.notify(f'Live preview error: {str(e)}', color='orange')
+                loop = asyncio.get_running_loop()
+                self.live_preview_segmented, self.filament_shades = await loop.run_in_executor(None, compute_live_preview)
+
+                # Update image display
+                buf = io.BytesIO()
+                self.live_preview_segmented.save(buf, format='PNG')
+                data = base64.b64encode(buf.getvalue()).decode()
+                self.image_component.set_source(f'data:image/png;base64,{data}')
+                self.rendered_image = self.live_preview_segmented
+
+                # Keep export button disabled for live preview
+                self.export_button.disable()
+
+            except Exception as e:
+                ui.notify(f'Live preview error: {str(e)}', color='orange')
+
+            # Check if restart is needed
+            if not self.live_preview_restart_pending:
+                break
+
+        # Mark update as finished
+        self.live_preview_updating = False
 
     def toggle_live_preview(self, enabled):
         """Toggle live preview mode"""
