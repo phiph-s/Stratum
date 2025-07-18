@@ -444,8 +444,7 @@ class StratumApp:
         buf = io.BytesIO()
         img.save(buf, format='PNG')
         data = base64.b64encode(buf.getvalue()).decode()
-        self.image_component.reset_transform()
-        self.image_component.set_source(f'data:image/png;base64,{data}')
+        self.image_component.set_source(f'data:image/png;base64,{data}', True)
         self.progress_bar.visible = False
         self.redraw_button.enable()
         self.export_button.enable()
@@ -602,10 +601,22 @@ class StratumApp:
                     #on_pixel=show_pixel,
                 ).classes('w-full h-full')
 
-                with ui.row().classes("fixed top-4 left-64 ml-4 z-50 text-white p-2 rounded").style("background-color: rgba(0, 0, 0, 0.75);"):
+                with ui.row().classes("fixed top-4 left-64 right-72 ml-4 mr-4"):
                     # Live preview checkbox in top left corner
-                    self.live_preview_checkbox = ui.checkbox('Live Preview', value=True, on_change=lambda e: self.toggle_live_preview(e.value)).tooltip('Enable live preview mode for faster updates')
-                    ui.button(icon='fit_screen', on_click=self.image_component.reset_transform).tooltip("Recenter preview").props("flat round")
+                    with ui.row().classes("z-50 text-white p-2 rounded").style("background-color: rgba(0, 0, 0, 0.75);"):
+                        self.live_preview_checkbox = ui.checkbox('Live Preview', value=True, on_change=lambda e: self.toggle_live_preview(e.value)).tooltip('Enable live preview mode for faster updates')
+                        ui.button(icon='fit_screen', on_click=self.image_component.reset_transform).tooltip("Recenter preview").props("flat round")
+
+                with ui.row().classes("fixed top-4 left-64 right-72 ml-4 mr-4 flex justify-center items-center"):
+                    # Erstes, linksbündiges Element mit Auto-Margin
+                    with ui.row().classes("mr-auto z-50 text-white p-2 rounded"):
+                        self.live_preview_checkbox = ui.checkbox('Live Preview', value=True, on_change=lambda e: self.toggle_live_preview(e.value)).tooltip('Enable live preview mode for faster updates')
+                        ui.button(icon='fit_screen', on_click=self.image_component.reset_transform).tooltip("Recenter preview").props("flat round")
+
+                    # Zweites Element landet automatisch zentriert
+                    ui.row().classes("").add_child(
+                        ui.label("Mitte")
+                    )
                 def reset_image():
                     self.original_image = None
                     self.segmented_image = None

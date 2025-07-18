@@ -24,9 +24,9 @@ class ZoomableImage(Element, component='zoomable_image.vue'):
     # ------------------------------------------------------------------
     # Public helper methods (call Vue's defineExpose hooks)
     # ------------------------------------------------------------------
-    def set_source(self, src: str) -> None:
+    def set_source(self, src: str, reset=False) -> None:
         """Dynamically load a new image file/URL."""
-        self.run_method('setSrc', src)
+        self.run_method('setSrc', src, reset)
 
     def reset_transform(self) -> None:
         """Reset zoom & pan to initial fit."""

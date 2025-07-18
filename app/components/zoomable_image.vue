@@ -199,9 +199,20 @@ export default {
     /* ---------------------------------------
      * Methods callable from Python side
      * -------------------------------------*/
-    setSrc(newSrc) {
+    setSrc(newSrc, reset = false) {
+      // If the caller wants a full reset, wait for the load event
+      if (reset) {
+        const img = this.$refs.img;
+
+        // Use { once: true } so the listener cleans itself up automatically
+        const onLoad = () => {
+          this.reset();              // restore scale/translate and refit
+        };
+        img.addEventListener('load', onLoad, { once: true });
+      }
+
+      // Trigger the load
       this.$refs.img.src = newSrc;
-      // load event will fire and redraw
     },
     reset() {
       this.scale = 1;
