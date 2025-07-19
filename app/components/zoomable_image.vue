@@ -42,10 +42,11 @@ export default {
       return {
         backgroundColor: '#8a8a8a',
         backgroundImage:
+          'radial-gradient(ellipse at center, transparent 30%, rgba(0,0,0,0.2) 70%, rgba(0,0,0,0.4) 100%), ' +
           'linear-gradient(45deg, #666 25%, transparent 25%, transparent 75%, #666 75%, #666), ' +
           'linear-gradient(45deg, #666 25%, transparent 25%, transparent 75%, #666 75%, #666)',
-        backgroundSize: '20px 20px',
-        backgroundPosition: '0 0, 10px 10px',
+        backgroundSize: '100% 100%, 20px 20px, 20px 20px',
+        backgroundPosition: '0 0, 0 0, 10px 10px',
       };
     },
     // Transform & sizing for <img>

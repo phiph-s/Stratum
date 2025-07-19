@@ -100,17 +100,17 @@ jobs:
     - name: Build executable (Windows)
       if: matrix.os == 'windows-latest'
       run: |
-        nicegui-pack --onefile --windowed --name "StratumNG" main.py
+        nicegui-pack --onefile --windowed --name "Stratum" main.py
 
     - name: Build executable (Linux)
       if: matrix.os == 'ubuntu-latest'
       run: |
-        nicegui-pack --onefile --windowed --name "StratumNG" main.py
+        nicegui-pack --onefile --windowed --name "Stratum" main.py
 
     - name: Build executable (macOS)
       if: matrix.os == 'macos-latest'
       run: |
-        nicegui-pack --onefile --windowed --name "StratumNG" main.py
+        nicegui-pack --onefile --windowed --name "Stratum" main.py
 
     - name: Copy assets to dist (All platforms)
       run: |
@@ -122,7 +122,7 @@ jobs:
       run: |
         # Create a simple ZIP package for Windows
         cd dist
-        7z a ../StratumNG-Windows-Installer.zip *
+        7z a ../Stratum-Windows.zip *
         cd ..
 
     - name: Create installer package (Linux)
@@ -130,7 +130,7 @@ jobs:
       run: |
         # Create a tarball for Linux
         cd dist
-        tar -czf ../StratumNG-Linux-Installer.tar.gz *
+        tar -czf ../Stratum-Linux.tar.gz *
         cd ..
 
     - name: Create installer package (macOS)
@@ -138,7 +138,7 @@ jobs:
       run: |
         # Create a DMG for macOS (simplified approach)
         cd dist
-        zip -r ../StratumNG-macOS-Installer.zip *
+        zip -r ../Stratum-macOS.zip *
         cd ..
 
     - name: Upload build artifacts
@@ -147,13 +147,13 @@ jobs:
         name: ${{ matrix.artifact_name }}
         path: |
           dist/
-          StratumNG-*-Installer.*
+          Stratum-*
 
     - name: Upload installer packages
       uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.artifact_name }}-Installer
-        path: StratumNG-*-Installer.*
+        path: Stratum-*
 
   release:
     needs: build

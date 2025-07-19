@@ -27,6 +27,7 @@ class StratumApp:
         self.filament_shades = None
         self.rendered_image = None
         self.status_banner = None
+        self.position_info_wrapper = None
         self.last_input_colors = []
         # Live preview state
         self.live_preview_enabled = True
@@ -75,6 +76,7 @@ class StratumApp:
 
     def show_position_info(self, pos, shade, layer_idx):
         self.position_info_content.clear()
+        self.position_info_wrapper.visible = True
         with self.position_info_content:
             pos_x, pos_y = pos
             ui.markdown(f"**Position:** {pos_x:.0f}, {pos_y:.0f} px")
@@ -638,8 +640,13 @@ class StratumApp:
                 ui.button(icon='cleaning_services', on_click=reset_image).props('flat round').classes('fixed bottom-4 right-4 z-50').tooltip('Reset')
 
             # Position info card
-            with ui.column().classes('flex-none top-0 right-0 p-4 w-72 h-full overflow-y-auto bg-neutral-900 border-l border-gray-900'):
+            with ui.column().classes('flex-none top-0 right-0 p-4 w-72 h-full overflow-y-auto bg-neutral-900 border-l border-gray-900') as self.position_info_wrapper:
+                ui.button(
+                    icon='close',
+                    on_click=lambda: setattr(self.position_info_wrapper, 'visible', False)
+                ).classes('absolute top-4 right-4 z-50').props('flat round size=sm').tooltip('Close position info')
                 self.position_info_content = ui.column()
+            self.position_info_wrapper.visible = False
 
         # Enable dark mode and adjust padding
         ui.dark_mode().enable()
