@@ -493,7 +493,6 @@ class StratumApp:
                     with ui.scroll_area().classes("w-full m-0 p-0 bg-neutral-900 flex-auto"):
                         self.filament_list_component = FilamentList(
                             filaments=self.filaments,
-                            on_move=lambda e: self.handle_filament_move(e.args),
                             on_remove=lambda e: self.handle_filament_remove(e.args),
                             on_update_max_layers=lambda e: self.handle_update_max_layers(e.args),
                             on_reorder=lambda e: self.handle_filament_reorder(e.args)
@@ -694,13 +693,6 @@ class StratumApp:
         """Handle layer height changes and trigger live preview"""
         if self.live_preview_enabled:
             asyncio.create_task(self.update_live_preview())
-
-    # Event handlers for the FilamentList Vue component
-    def handle_filament_move(self, data):
-        """Handle move button clicks from the Vue component"""
-        old_idx = data['oldIndex']
-        new_idx = data['newIndex']
-        self.move_filament(old_idx, new_idx)
 
     def handle_filament_remove(self, idx):
         """Handle remove button clicks from the Vue component"""

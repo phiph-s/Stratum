@@ -199,9 +199,6 @@ export default {
         return false;
       }
     },
-    moveFilament(oldIdx, newIdx) {
-      this.$emit('move', { oldIndex: oldIdx, newIndex: newIdx });
-    },
     removeFilament(idx) {
       this.$emit('remove', idx);
     },
