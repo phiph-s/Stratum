@@ -3,6 +3,7 @@ from lib.mask_creation import segment_to_shades, generate_shades_td
 from lib.filament_manager import FilamentManager
 from PIL import Image
 from app.components.zoomable_image import ZoomableImage
+from app.components.filament_list import FilamentList
 import io
 import asyncio
 import base64
@@ -46,7 +47,7 @@ class StratumApp:
         self.filament_edit_dialog = None
         self.filament_edit_max_layers_input = None
         self.position_info_content = None
-        self.filament_container = None
+        self.filament_list_component = None  # Changed from filament_container
         self.placeholder = None
         self.image_component = None
         self.progress_bar = None
@@ -153,84 +154,9 @@ class StratumApp:
         self.show_position_info((x, y), clicked_shadeid, clicked_layerid)
 
     def update_filament_list(self):
-        self.filament_container.clear()
-        for idx, f in enumerate(reversed(self.filaments)):
-            real_idx = len(self.filaments) - 1 - idx
-
-            # Retrieve filament data from manager if available
-            manager_id = f.get('id', None)
-            data = f.get('copied_data', {})
-            project_specific = True
-            if manager_id is not None:
-                f_data, _ = self.filament_manager.find_filament_by_id(manager_id)  # Ensure the filament is in the manager
-                if f_data:
-                    data = f_data
-                    project_specific = False
-
-            # Get instance max_layers value (takes precedence over manager value)
-            instance_max_layers = f.get('max_layers', data.get('max_layers', 5))
-
-            # Check if color is brighter than (128,128,128)
-            color_hex = data.get('color', '#000000')
-            # Parse hex color to RGB
-            try:
-                r = int(color_hex[1:3], 16)
-                g = int(color_hex[3:5], 16)
-                b = int(color_hex[5:7], 16)
-                is_bright = (r + g + b) / 3 > 128
-            except (ValueError, IndexError):
-                is_bright = False
-
-            with self.filament_container:
-                row_classes = 'items-center gap-1 p-1 rounded'
-                if is_bright:
-                    row_classes += ' text-black'
-                else:
-                    row_classes += ' text-white border border-gray-400'
-
-                with ui.row().classes('w-full ' + row_classes).style(f'background-color:{data["color"]};'):
-                    # Left side: Up/Down buttons stacked
-                    with ui.column().classes('gap-1 flex-shrink-0'):
-                        ui.button(icon='keyboard_arrow_up', on_click=lambda _, i=real_idx: self.move_filament(i, i+1)).props('flat round size=xs').style('min-width: 20px; min-height: 20px;').classes(row_classes)
-                        ui.button(icon='keyboard_arrow_down', on_click=lambda _, i=real_idx: self.move_filament(i, i-1)).props('flat round size=xs').style('min-width: 20px; min-height: 20px;').classes(row_classes)
-
-                    # Middle: Name and max_layers input - takes all available space
-                    with ui.column().classes('flex-grow gap-0 min-w-0'):
-                        # First row: Name with context menu
-                        with ui.row().classes('items-center gap-2 w-full justify-between'):
-                            add = "* " if project_specific else ""
-                            tooltip = data["name"]
-                            if project_specific:
-                                tooltip += " (not in library)"
-                            ui.label(add + data['name']).classes('text-sm font-semibold w-32 truncate').tooltip(tooltip)
-                            # Right side: Context menu - fixed size
-                            with ui.button(icon='more_vert').props('flat round size=sm').style('min-width: 32px;').classes(row_classes + ' flex-shrink-0'):
-                                with ui.menu():
-                                    ui.menu_item('Remove', on_click=lambda _, i=real_idx: self.remove_filament(i))
-
-                        # Second row: Slider with icons
-                        color = 'black' if is_bright else 'white'
-                        color_rev = 'white' if is_bright else 'black'
-                        # check for last filament, if so, don't show max_layers slider
-                        if real_idx == 0:
-                            with ui.row().classes('items-center gap-1 w-full flex-nowrap'):
-                                ui.icon('vertical_align_bottom').classes('text-xs flex-shrink-0 pr-1')
-                                ui.label("First layer").classes('text-xs').tooltip("The layers of the bottom layer is set in the export settings")
-                        else:
-                            with ui.row().classes('items-center gap-1 w-full flex-nowrap'):
-                                slider = ui.slider(
-                                    value=instance_max_layers,
-                                    min=1,
-                                    max=20,
-                                    on_change=lambda e, i=real_idx: self.update_max_layers(i, int(e.value))
-                                ).classes('flex-1 min-w-0 mr-1').props(f'dense outlined size=sm label markers color="{color}" label-text-color="{color_rev}"').style('font-size: 0.75rem;')
-                                ui.label().bind_text_from(slider, 'value').classes('text-xs flex-shrink-0 text-center')
-                                ui.icon('layers').classes('text-xs flex-shrink-0 pr-2')
-
-
-        if not self.filaments:
-            with self.filament_container:
-                ui.markdown('**No filaments added**').classes('text-gray-500')
+        """Update the filament list component with current filaments data"""
+        if self.filament_list_component:
+            self.filament_list_component.update_filaments(self.filaments)
 
     def move_filament(self, old, new):
         if 0 <= new < len(self.filaments):
@@ -565,9 +491,13 @@ class StratumApp:
                         ui.button("Create", icon='add', on_click=self.filament_manager.open_dialog).props('size=sm flat').tooltip('Manage Filaments')
                     # expand able scroll area for filaments
                     with ui.scroll_area().classes("w-full m-0 p-0 bg-neutral-900 flex-auto"):
-                        self.filament_container = ui.column().classes('gap-2 mb-4 w-full')
-                        with self.filament_container:
-                            ui.markdown('**No filaments added**').classes('text-gray-500')
+                        self.filament_list_component = FilamentList(
+                            filaments=self.filaments,
+                            on_move=lambda e: self.handle_filament_move(e.args),
+                            on_remove=lambda e: self.handle_filament_remove(e.args),
+                            on_update_max_layers=lambda e: self.handle_update_max_layers(e.args),
+                            on_reorder=lambda e: self.handle_filament_reorder(e.args)
+                        ).classes('gap-2 mb-4 w-full')
 
                     with ui.column().classes("bg-gray-700 border-t border-gray-900  w-64 flex-none"):
                         with ui.column().classes("pt-1 pb-0 p-4 gap-0"):
@@ -764,3 +694,26 @@ class StratumApp:
         """Handle layer height changes and trigger live preview"""
         if self.live_preview_enabled:
             asyncio.create_task(self.update_live_preview())
+
+    # Event handlers for the FilamentList Vue component
+    def handle_filament_move(self, data):
+        """Handle move button clicks from the Vue component"""
+        old_idx = data['oldIndex']
+        new_idx = data['newIndex']
+        self.move_filament(old_idx, new_idx)
+
+    def handle_filament_remove(self, idx):
+        """Handle remove button clicks from the Vue component"""
+        self.remove_filament(idx)
+
+    def handle_update_max_layers(self, data):
+        """Handle max layers slider changes from the Vue component"""
+        idx = data['index']
+        value = data['value']
+        self.update_max_layers(idx, value)
+
+    def handle_filament_reorder(self, data):
+        """Handle drag and drop reordering from the Vue component"""
+        old_idx = data['oldIndex']
+        new_idx = data['newIndex']
+        self.move_filament(old_idx, new_idx)
