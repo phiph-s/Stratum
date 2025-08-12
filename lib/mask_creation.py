@@ -49,50 +49,68 @@ def segment_to_shades(source_image: Image, filament_shades):
     return Image.fromarray(seg_rgba, mode='RGBA')
 
 @timed
-def generate_shades_td(filament_order, td_values, max_layer_values, layer_height):
+def generate_shades_td(
+    filament_order,
+    td_values,
+    max_layer_values,
+    layer_height,
+    td_to_blend_factor=0.1   # maps TD → effective blend distance (≈ TD/10)
+):
     """
-    Generate printable shades for a sequence of filaments using Transmission Distance (TD).
+    Generate printable shades for a sequence of filaments using Transmission Distance (TD),
+    with an exponential attenuation model and a practical TD→blend-distance mapping.
 
-    Each filament after the first blends with the last shade of the previous filament.
-    Blending factor per layer is calculated via exponential attenuation:
-        blend = 1 - exp(-h / TD)
-    where h = layer_count * layer_height.
+        blend(h) = 1 - exp(-h / td_eff),  where td_eff = TD * td_to_blend_factor (≈ TD/10)
+
+    Always generates exactly max_layer_values[i] shades for each filament.
 
     Args:
-        filament_order (list of (R, G, B)): List of filament base colors.
-        td_values (list of float): Transmission Distance per filament (in mm). Index 0 unused.
-        max_layer_values (list of int): Max layers per filament. Index 0 unused.
-        layer_height (float): Height of one printing layer (in mm).
+        filament_order (list[(R,G,B)]): List of filament base colors (0–255).
+        td_values (list[float]): Transmission Distance per filament (mm). Index 0 unused.
+        max_layer_values (list[int]): Max layers per filament. Index 0 unused.
+        layer_height (float): Layer height (mm).
+        td_to_blend_factor (float): Factor converting TD → effective blend distance. Default 0.1.
 
     Returns:
-        list of lists of RGB tuples: Shades per filament.
+        list[list[(R,G,B)]]: Shades per filament.
     """
+    if layer_height <= 0:
+        raise ValueError("layer_height must be > 0")
+    if td_to_blend_factor <= 0:
+        raise ValueError("td_to_blend_factor must be > 0")
+
     all_shades = []
 
     for i, cur in enumerate(filament_order):
         if i == 0:
             # First filament: no blending, just the base color
             all_shades.append([tuple(cur)])
-        else:
-            prev_shades = all_shades[i - 1]
-            base_color = prev_shades[-1]  # last shade of previous filament
-            print (f"Base color for filament {i}: {base_color}")
-            td = td_values[i] * TRANSMISSION_TO_BLEND_FACTOR
-            max_layers = max_layer_values[i]
-            shades = []
+            continue
 
-            for L in range(1, max_layers + 1):
-                h = L * layer_height
-                blend = 1 - math.exp(-h / td)
-                shade = tuple(
-                    int(round(base_color[c] * (1 - blend) + cur[c] * blend))
-                    for c in range(3)
-                )
-                shades.append(shade)
+        prev_shades = all_shades[i - 1]
+        base_color = prev_shades[-1]  # blend from last shade of previous filament
 
-            all_shades.append(shades)
+        td = td_values[i]
+        if td <= 0:
+            raise ValueError(f"TD for filament {i} must be > 0 (got {td}).")
+
+        td_eff = td * td_to_blend_factor
+        max_layers = max(1, int(max_layer_values[i]))
+
+        shades = []
+        for L in range(1, max_layers + 1):
+            h = L * layer_height
+            blend = 1.0 - math.exp(-h / td_eff)
+            shade = tuple(
+                int(round(base_color[c] * (1.0 - blend) + cur[c] * blend))
+                for c in range(3)
+            )
+            shades.append(shade)
+
+        all_shades.append(shades)
 
     return all_shades
+
 
 # Test TD function
 if __name__ == "__main__":

@@ -25,6 +25,9 @@ def main_page():
         except Exception as e:
             print(f"Error loading project {project_path}: {str(e)}")
             ui.notify(f'Error loading project: {str(e)}', color='red')
+    else:
+        sapp.new_project()
+
 
 # define project with -p or --project
 if '-p' in sys.argv or '--project' in sys.argv:

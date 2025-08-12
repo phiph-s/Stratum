@@ -114,10 +114,19 @@ export default {
       const rect = this.$refs.container.getBoundingClientRect();
       // If the container has not been laid out yet (width/height 0) defer until next tick
       if (!rect.width || !rect.height) {
+        // Add a guard to prevent infinite recursion when component is hidden
+        if (this._fitImageRetries === undefined) this._fitImageRetries = 0;
+        if (this._fitImageRetries > 10) {
+          this._fitImageRetries = 0;
+          return; // Stop trying after 10 attempts
+        }
+        this._fitImageRetries++;
         this.$nextTick(this.fitImage);
         return;
       }
 
+      // Reset retry counter on successful execution
+      this._fitImageRetries = 0;
       const paddingX = rect.width * 0.10;
       const paddingY = rect.height * 0.10;
       const innerW = rect.width - paddingX * 2;

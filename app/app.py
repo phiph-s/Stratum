@@ -520,6 +520,17 @@ class StratumApp:
             return
         self.project_dialog.open()
 
+    def reset_image(self):
+        self.original_image = None
+        self.segmented_image = None
+        self.polygons = None
+        self.rendered_image_size = None
+        self.filament_shades = None
+        self.rendered_image = None
+        self.live_preview_segmented = None
+        self.placeholder.visible = True
+        self.image_component.style('display: none;')
+
     def build(self):
         # Initialize filament manager with callback
         self.filament_manager.build_dialog(on_add_callback=self.add_filament_from_manager)
@@ -626,18 +637,7 @@ class StratumApp:
                         self.status_banner = ui.label().classes('z-50 text-sm rounded p-2')
                         self.status_banner.set_visibility(False)
 
-                def reset_image():
-                    self.original_image = None
-                    self.segmented_image = None
-                    self.polygons = None
-                    self.rendered_image_size = None
-                    self.filament_shades = None
-                    self.rendered_image = None
-                    self.live_preview_segmented = None
-                    self.placeholder.visible = True
-                    self.image_component.visible = False
-
-                ui.button(icon='cleaning_services', on_click=reset_image).props('flat round').classes('fixed bottom-4 right-4 z-50').tooltip('Reset')
+                ui.button(icon='cleaning_services', on_click=self.reset_image).props('flat round').classes('fixed bottom-4 right-4 z-50').tooltip('Reset')
 
             # Position info card
             with ui.column().classes('flex-none top-0 right-0 p-4 w-72 h-full overflow-y-auto bg-neutral-900 border-l border-gray-900') as self.position_info_wrapper:
