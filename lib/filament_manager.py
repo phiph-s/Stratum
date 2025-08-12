@@ -22,6 +22,9 @@ class FilamentManager:
         self.on_add_callback = None
         self.tab_panels = None
 
+        # List of FilamentList components that need color sync
+        self.filament_list_components = []
+
         # Load saved filaments from storage
         self.load_filaments()
 
@@ -282,5 +285,31 @@ class FilamentManager:
             self.update_filament_list(container=self.filament_list_container)
             self.update_filament_list(container=self.filament_list_container_favs, favorites_only=True)
 
+            # Sync color changes to all registered FilamentList components
+            self.sync_colors_to_components()
+
             ui.notify('Filament updated successfully', color='green')
             self.edit_dialog.close()
+
+    def register_filament_list_component(self, component):
+        """Register a FilamentList component for color synchronization"""
+        if component not in self.filament_list_components:
+            self.filament_list_components.append(component)
+            # Immediately sync current colors to the new component
+            component.sync_manager_colors()
+
+    def unregister_filament_list_component(self, component):
+        """Unregister a FilamentList component"""
+        if component in self.filament_list_components:
+            self.filament_list_components.remove(component)
+
+    def sync_colors_to_components(self):
+        """Sync current manager colors to all registered FilamentList components"""
+        for component in self.filament_list_components:
+            try:
+                component.sync_manager_colors()
+            except Exception as e:
+                # Component might be destroyed, remove it from the list
+                print(f"Error syncing colors to component: {e}")
+                self.unregister_filament_list_component(component)
+

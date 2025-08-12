@@ -47,7 +47,7 @@ class StratumApp:
         self.filament_edit_dialog = None
         self.filament_edit_max_layers_input = None
         self.position_info_content = None
-        self.filament_list_component = None  # Changed from filament_container
+        self.filament_list_component = None
         self.placeholder = None
         self.image_component = None
         self.progress_bar = None
@@ -493,10 +493,12 @@ class StratumApp:
                     with ui.scroll_area().classes("w-full m-0 p-0 bg-neutral-900 flex-auto"):
                         self.filament_list_component = FilamentList(
                             filaments=self.filaments,
-                            on_remove=lambda e: self.handle_filament_remove(e.args),
-                            on_update_max_layers=lambda e: self.handle_update_max_layers(e.args),
-                            on_reorder=lambda e: self.handle_filament_reorder(e.args)
+                            filament_manager=self.filament_manager,
+                            on_change=self.on_filament_list_change
                         ).classes('gap-2 mb-4 w-full')
+
+                        # Register the component with the filament manager for color sync
+                        self.filament_manager.register_filament_list_component(self.filament_list_component)
 
                     with ui.column().classes("bg-gray-700 border-t border-gray-900  w-64 flex-none"):
                         with ui.column().classes("pt-1 pb-0 p-4 gap-0"):
@@ -691,6 +693,15 @@ class StratumApp:
 
     def on_layer_height_change(self, e):
         """Handle layer height changes and trigger live preview"""
+        if self.live_preview_enabled:
+            asyncio.create_task(self.update_live_preview())
+
+    def on_filament_list_change(self, new_filaments):
+        """Handle full state synchronization from Vue component"""
+        # Vue component is the source of truth, so we update our state to match
+        self.filaments = new_filaments
+
+        # Trigger live preview update
         if self.live_preview_enabled:
             asyncio.create_task(self.update_live_preview())
 

@@ -3,14 +3,14 @@ import "Sortable";
 export default {
   template: `
     <div class="filament-list-container">
-      <div v-if="filaments.length === 0" class="text-gray-500">
+      <div v-if="internalFilaments.length === 0" class="text-gray-500">
         <strong>No filaments added</strong>
       </div>
       <div v-else ref="sortableContainer" class="filament-items">
         <div 
           v-for="(filament, displayIdx) in reversedFilaments" 
-          :key="filament.id || displayIdx"
-          :data-real-idx="filament.realIdx"
+          :key="filament.instance_id"
+          :data-instance-id="filament.instance_id"
           class="filament-item w-full mb-2"
           :class="getRowClasses(filament)"
           :style="getRowStyle(filament)"
@@ -41,7 +41,7 @@ export default {
               >
                 <q-menu>
                   <q-list>
-                    <q-item clickable v-close-popup @click="removeFilament(filament.realIdx)">
+                    <q-item clickable v-close-popup @click="removeFilament(filament.instance_id)">
                       <q-item-section>Remove</q-item-section>
                     </q-item>
                   </q-list>
@@ -50,7 +50,7 @@ export default {
             </div>
 
             <!-- Second row: Slider with icons -->
-            <div v-if="filament.realIdx === 0" class="items-center gap-1 w-full flex-nowrap" style="display: flex;">
+            <div v-if="displayIdx === reversedFilaments.length - 1" class="items-center gap-1 w-full flex-nowrap" style="display: flex;">
               <q-icon name="vertical_align_bottom" class="text-xs flex-shrink-0" style="padding-right: 4px;" />
               <span class="text-xs" title="The layers of the bottom layer is set in the export settings">
                 First layer
@@ -68,7 +68,7 @@ export default {
                 markers
                 class="flex-1 min-w-0"
                 style="margin-right: 4px; font-size: 0.75rem;"
-                @update:model-value="updateMaxLayers(filament.realIdx, $event)"
+                @update:model-value="updateMaxLayers(filament.instance_id, $event)"
               />
               <span class="text-xs flex-shrink-0 text-center">{{ filament.max_layers }}</span>
               <q-icon name="layers" class="text-xs flex-shrink-0" style="padding-right: 8px;" />
@@ -86,36 +86,27 @@ export default {
   },
   data() {
     return {
-      sortable: null
+      sortable: null,
+      internalFilaments: [],
+      managerColors: {}
     };
   },
   computed: {
     reversedFilaments() {
-      return this.filaments.map((f, idx) => {
-        const realIdx = this.filaments.length - 1 - idx;
-        const reversedFilament = this.filaments[realIdx];
-        
-        // Process filament data - use copied_data if available, otherwise use direct properties
-        const data = reversedFilament.copied_data || {
-          name: reversedFilament.name || 'Unnamed',
-          color: reversedFilament.color || '#000000',
-          td_value: reversedFilament.td_value || 0.5
-        };
-
-        // Determine if this is project-specific (no id means it's project-only)
-        const projectSpecific = !reversedFilament.id;
-
-        // Get instance max_layers value (takes precedence over manager value)
-        const instanceMaxLayers = reversedFilament.max_layers || data.max_layers || 5;
-
-        return {
-          ...reversedFilament,
-          realIdx,
-          data,
-          projectSpecific,
-          max_layers: instanceMaxLayers
-        };
-      });
+      // Reverse for display (top is last in array)
+      return [...this.internalFilaments].reverse();
+    }
+  },
+  watch: {
+    filaments: {
+      handler(newFilaments) {
+        // Only update if different from internal state
+        if (JSON.stringify(newFilaments) !== JSON.stringify(this.internalFilaments)) {
+          this.internalFilaments = this.processFilaments([...newFilaments]);
+        }
+      },
+      immediate: true,
+      deep: true
     }
   },
   mounted() {
@@ -130,13 +121,44 @@ export default {
     }
   },
   methods: {
+    processFilaments(filaments) {
+      return filaments.map(filament => {
+        // Ensure instance_id exists
+        if (!filament.instance_id) {
+          filament.instance_id = this.generateInstanceId();
+        }
+
+        // Get current color from manager if available, otherwise use copied_data
+        const managerId = filament.id;
+        let currentColor = filament.copied_data?.color || '#000000';
+        let currentName = filament.copied_data?.name || 'Unnamed';
+        let currentTdValue = filament.copied_data?.td_value || 0.5;
+
+        if (managerId && this.managerColors[managerId]) {
+          currentColor = this.managerColors[managerId];
+        }
+
+        return {
+          ...filament,
+          currentColor,
+          currentName,
+          currentTdValue,
+          max_layers: filament.max_layers || 5
+        };
+      });
+    },
+
+    generateInstanceId() {
+      return 'instance_' + Math.random().toString(36).substr(2, 9);
+    },
+
     initSortable() {
       if (this.sortable) {
         this.sortable.destroy();
       }
       
       const container = this.$refs.sortableContainer;
-      if (container && this.filaments.length > 0) {
+      if (container && this.internalFilaments.length > 0) {
         this.sortable = new Sortable(container, {
           animation: 150,
           ghostClass: 'sortable-ghost',
@@ -147,48 +169,58 @@ export default {
             const oldIndex = evt.oldIndex;
             const newIndex = evt.newIndex;
             
-            // Convert display indices to real indices
-            const realOldIdx = this.reversedFilaments[oldIndex].realIdx;
-            const realNewIdx = this.reversedFilaments[newIndex].realIdx;
-            
-            this.$emit('reorder', { oldIndex: realOldIdx, newIndex: realNewIdx });
+            // Reorder in reversed array, then unreverse
+            const reversed = [...this.internalFilaments].reverse();
+            const [movedItem] = reversed.splice(oldIndex, 1);
+            reversed.splice(newIndex, 0, movedItem);
+
+            this.internalFilaments = reversed.reverse();
+            this.syncState();
           }
         });
       }
     },
+
     getRowClasses(filament) {
       let classes = 'items-center gap-1 p-1 rounded';
-      if (this.isBright(filament.data.color)) {
+      if (this.isBright(filament.currentColor)) {
         classes += ' text-black';
       } else {
         classes += ' text-white border border-gray-400';
       }
       return classes;
     },
+
     getRowStyle(filament) {
       return {
-        backgroundColor: filament.data.color || '#000000',
+        backgroundColor: filament.currentColor || '#000000',
         display: 'flex',
         width: '100%'
       };
     },
+
     getDisplayName(filament) {
-      const add = filament.projectSpecific ? "* " : "";
-      return add + (filament.data.name || 'Unnamed');
+      const isProjectSpecific = !filament.id;
+      const prefix = isProjectSpecific ? "* " : "";
+      return prefix + (filament.currentName || 'Unnamed');
     },
+
     getTooltip(filament) {
-      let tooltip = filament.data.name || 'Unnamed';
-      if (filament.projectSpecific) {
+      let tooltip = filament.currentName || 'Unnamed';
+      if (!filament.id) {
         tooltip += " (not in library)";
       }
       return tooltip;
     },
+
     getSliderColor(filament) {
-      return this.isBright(filament.data.color) ? 'black' : 'white';
+      return this.isBright(filament.currentColor) ? 'black' : 'white';
     },
+
     getSliderLabelColor(filament) {
-      return this.isBright(filament.data.color) ? 'white' : 'black';
+      return this.isBright(filament.currentColor) ? 'white' : 'black';
     },
+
     isBright(colorHex) {
       try {
         const r = parseInt(colorHex.slice(1, 3), 16);
@@ -199,11 +231,30 @@ export default {
         return false;
       }
     },
-    removeFilament(idx) {
-      this.$emit('remove', idx);
+
+    removeFilament(instanceId) {
+      this.internalFilaments = this.internalFilaments.filter(f => f.instance_id !== instanceId);
+      this.syncState();
     },
-    updateMaxLayers(idx, value) {
-      this.$emit('update-max-layers', { index: idx, value: parseInt(value) });
+
+    updateMaxLayers(instanceId, value) {
+      const filament = this.internalFilaments.find(f => f.instance_id === instanceId);
+      if (filament) {
+        filament.max_layers = parseInt(value);
+        this.syncState();
+      }
+    },
+
+    updateManagerColors(colorMap) {
+      this.managerColors = colorMap;
+      // Reprocess filaments to update colors
+      this.internalFilaments = this.processFilaments(this.internalFilaments);
+      this.syncState();
+    },
+
+    syncState() {
+      // Emit the current state to keep parent in sync
+      this.$emit('sync-state', [...this.internalFilaments]);
     }
   }
 };
