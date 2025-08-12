@@ -469,25 +469,38 @@ class StratumApp:
         if not self.polygons:
             ui.notify('Nothing to export', color='red')
             return
-        buf = io.BytesIO()
+
         self.progress_bar.value = 0
         self.progress_bar.visible = True
-        with zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
-            print(f"polygons: {len(self.polygons)}")
-            meshes = polygons_to_meshes_parallel(
-                self.segmented_image,
-                self.polygons,
-                layer_height=float(self.layer_input.value),
-                target_max_cm=float(self.size_input.value),
-                base_layers=int(self.base_input.value),
-                progress_cb=lambda v: setattr(self.progress_bar, 'value', v)
-            )
-            print(f"meshes: {len(meshes)}")
-            for idx, mesh in enumerate(meshes):
-                stl_buf = io.BytesIO()
-                mesh.export(file_obj=stl_buf, file_type='stl')
-                archive.writestr(f'mesh_{idx}.stl', stl_buf.getvalue())
+        self.redraw_button.disable()
+        self.export_button.disable()
+
+        def compute_meshes():
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+                print(f"polygons: {len(self.polygons)}")
+                meshes = polygons_to_meshes_parallel(
+                    self.segmented_image,
+                    self.polygons,
+                    layer_height=float(self.layer_input.value),
+                    target_max_cm=float(self.size_input.value),
+                    base_layers=int(self.base_input.value),
+                    progress_cb=lambda v: setattr(self.progress_bar, 'value', v)
+                )
+                print(f"meshes: {len(meshes)}")
+                for idx, mesh in enumerate(meshes):
+                    stl_buf = io.BytesIO()
+                    mesh.export(file_obj=stl_buf, file_type='stl')
+                    archive.writestr(f'mesh_{idx}.stl', stl_buf.getvalue())
+            return buf
+
+        # Run in executor to avoid blocking the UI
+        loop = asyncio.get_running_loop()
+        buf = await loop.run_in_executor(None, compute_meshes)
+
         buf.seek(0)
+        self.redraw_button.enable()
+        self.export_button.enable()
         if app.native.main_window:
             print("Exporting meshes in native mode")
             import webview
@@ -505,6 +518,7 @@ class StratumApp:
                 ui.notify(f'Error exporting meshes: {str(e)}', color='red')
         else: ui.download.content(buf.getvalue(), 'meshes.zip')
         self.progress_bar.visible = False
+
 
     async def open_project_switch(self):
         if app.native.main_window:
