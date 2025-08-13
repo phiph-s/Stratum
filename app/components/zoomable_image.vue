@@ -7,14 +7,24 @@
     @mousedown="onMouseDown"
     @click="onClick"
   >
+    <!-- Raster image element -->
     <img
+      v-if="!isSvg"
       ref="img"
       style="max-width: none; max-height: none;"
-      :src="src"
+      :src="currentSrc"
       :style="imgStyle"
       @load="onImgLoad"
       draggable="false"
     />
+    <!-- SVG container -->
+    <div
+      v-else
+      ref="svgContainer"
+      :style="imgStyle"
+      v-html="svgContent"
+      @load="onSvgLoad"
+    ></div>
     <canvas ref="canvas" style="display:none"></canvas>
   </div>
 </template>
@@ -34,6 +44,9 @@ export default {
       translate: { x: 0, y: 0 },
       dragging: false,
       lastMouse: { x: 0, y: 0 },
+      isSvg: false,
+      svgContent: '',
+      currentSrc: '',
     };
   },
   computed: {
@@ -60,15 +73,84 @@ export default {
     },
   },
   watch: {
-    // When src is changed externally via prop, delegate to setSrc so we keep state
+    // When src is changed externally via prop, update internal currentSrc
     src(newVal) {
-      this.setSrc(newVal);
+      this.currentSrc = newVal;
+      this.checkContentType();
     },
   },
   mounted() {
-    if (this.$refs.img.complete) this.onImgLoad();
+    this.currentSrc = this.src;
+    this.checkContentType();
+    if (this.$refs.img && this.$refs.img.complete) this.onImgLoad();
   },
   methods: {
+    /* ---------------------------------------
+     * Content type detection and handling
+     * -------------------------------------*/
+    checkContentType() {
+      if (!this.currentSrc) return;
+
+      // Check if it's SVG data URL or inline SVG
+      if (this.currentSrc.startsWith('data:image/svg+xml') || this.currentSrc.startsWith('<svg')) {
+        this.isSvg = true;
+        this.loadSvgContent();
+      } else {
+        this.isSvg = false;
+      }
+    },
+
+    async loadSvgContent() {
+      try {
+        if (this.currentSrc.startsWith('data:image/svg+xml')) {
+          // Decode data URL
+          const base64Data = this.currentSrc.split(',')[1];
+          this.svgContent = atob(base64Data);
+        } else if (this.currentSrc.startsWith('<svg')) {
+          // Direct SVG content
+          this.svgContent = this.currentSrc;
+        } else {
+          // External SVG file
+          const response = await fetch(this.currentSrc);
+          this.svgContent = await response.text();
+        }
+
+        // Parse SVG dimensions
+        this.$nextTick(() => {
+          this.parseSvgDimensions();
+        });
+      } catch (error) {
+        console.error('Error loading SVG:', error);
+      }
+    },
+
+    parseSvgDimensions() {
+      const svgElement = this.$refs.svgContainer?.querySelector('svg');
+      if (svgElement) {
+        // Try to get dimensions from SVG attributes
+        let width = svgElement.getAttribute('width');
+        let height = svgElement.getAttribute('height');
+
+        // If no width/height, try viewBox
+        if (!width || !height) {
+          const viewBox = svgElement.getAttribute('viewBox');
+          if (viewBox) {
+            const [, , vbWidth, vbHeight] = viewBox.split(' ').map(Number);
+            width = width || vbWidth;
+            height = height || vbHeight;
+          }
+        }
+
+        // Convert to numbers, removing units
+        this.naturalSize = {
+          w: parseFloat(width) || 100,
+          h: parseFloat(height) || 100,
+        };
+
+        this.onContentLoad();
+      }
+    },
+
     /* ---------------------------------------
      * Utility helpers
      * -------------------------------------*/
@@ -78,13 +160,26 @@ export default {
     redrawCanvas() {
       const ctx = this.$refs.canvas.getContext('2d');
       ctx.clearRect(0, 0, this.naturalSize.w, this.naturalSize.h);
-      ctx.drawImage(
-        this.$refs.img,
-        0,
-        0,
-        this.naturalSize.w,
-        this.naturalSize.h,
-      );
+
+      if (this.isSvg) {
+        // For SVG, create an image from the SVG content
+        const svgBlob = new Blob([this.svgContent], { type: 'image/svg+xml' });
+        const url = URL.createObjectURL(svgBlob);
+        const img = new Image();
+        img.onload = () => {
+          ctx.drawImage(img, 0, 0, this.naturalSize.w, this.naturalSize.h);
+          URL.revokeObjectURL(url);
+        };
+        img.src = url;
+      } else {
+        ctx.drawImage(
+          this.$refs.img,
+          0,
+          0,
+          this.naturalSize.w,
+          this.naturalSize.h,
+        );
+      }
     },
     computeClickData(evt) {
       const rect = this.$refs.container.getBoundingClientRect();
@@ -99,6 +194,12 @@ export default {
         iy >= this.naturalSize.h
       )
         return null;
+
+      // For click data, we need to render to canvas first
+      if (this.isSvg) {
+        this.redrawCanvas();
+      }
+
       const pixel = this.$refs.canvas
         .getContext('2d')
         .getImageData(Math.floor(ix), Math.floor(iy), 1, 1).data;
@@ -148,6 +249,9 @@ export default {
         w: this.$refs.img.naturalWidth,
         h: this.$refs.img.naturalHeight,
       };
+      this.onContentLoad();
+    },
+    onContentLoad() {
       this.$refs.canvas.width = this.naturalSize.w;
       this.$refs.canvas.height = this.naturalSize.h;
       this.redrawCanvas();
@@ -210,19 +314,28 @@ export default {
      * Methods callable from Python side
      * -------------------------------------*/
     setSrc(newSrc, reset = false) {
-      // If the caller wants a full reset, wait for the load event
-      if (reset) {
-        const img = this.$refs.img;
+      // Update internal currentSrc instead of modifying the prop
+      this.currentSrc = newSrc;
+      this.checkContentType();
 
-        // Use { once: true } so the listener cleans itself up automatically
-        const onLoad = () => {
-          this.reset();              // restore scale/translate and refit
-        };
-        img.addEventListener('load', onLoad, { once: true });
+      if (this.isSvg) {
+        // For SVG, load content and handle reset
+        this.loadSvgContent().then(() => {
+          if (reset) {
+            this.reset();
+          }
+        });
+      } else {
+        // For raster images, use existing logic
+        if (reset) {
+          const img = this.$refs.img;
+          const onLoad = () => {
+            this.reset();
+          };
+          img.addEventListener('load', onLoad, { once: true });
+        }
+        // The img src will update automatically via the binding to currentSrc
       }
-
-      // Trigger the load
-      this.$refs.img.src = newSrc;
     },
     reset() {
       this.scale = 1;
@@ -234,7 +347,8 @@ export default {
 </script>
 
 <style scoped>
-.viewer-container img {
+.viewer-container img,
+.viewer-container svg {
   display: block;
 }
 </style>

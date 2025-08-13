@@ -12,6 +12,7 @@ import matplotlib.backends.backend_svg
 
 from lib.mesh_generator import create_layered_polygons_parallel, render_polygons_to_pil_image, \
     polygons_to_meshes_parallel
+from lib.render_utils import render_polygons_to_svg
 
 
 class StratumApp:
@@ -442,19 +443,25 @@ class StratumApp:
                 progress_cb=lambda v: setattr(self.progress_bar, 'value', v * 0.5),
                 min_area=min_area, simplify_tol=simplify_tol, marching_squares_level=marching_squares_level
             )
-            img = render_polygons_to_pil_image(
+            #img = render_polygons_to_pil_image(
+            #    polys, shades, segmented.size, max_size=self.size_input.value,
+            #    progress_cb=lambda v: setattr(self.progress_bar, 'value', 0.5 + 0.5 * v)
+            #)
+            svg = render_polygons_to_svg(
                 polys, shades, segmented.size, max_size=self.size_input.value,
                 progress_cb=lambda v: setattr(self.progress_bar, 'value', 0.5 + 0.5 * v)
             )
-            return segmented, polys, img, shades
+            return segmented, polys, svg, shades
         loop = asyncio.get_running_loop()
-        self.segmented_image, self.polygons, img, self.filament_shades = await loop.run_in_executor(None, compute)
+        self.segmented_image, self.polygons, svg, self.filament_shades = await loop.run_in_executor(None, compute)
         self.rendered_image = img
         self.rendered_image_size = img.size
         buf = io.BytesIO()
         img.save(buf, format='PNG')
         data = base64.b64encode(buf.getvalue()).decode()
         self.image_component.set_source(f'data:image/png;base64,{data}', True)
+        self.image_component.set_svg_content(svg, reset=True)
+
         self.progress_bar.visible = False
         self.redraw_button.enable()
         self.export_button.enable()
