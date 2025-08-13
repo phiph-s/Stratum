@@ -572,7 +572,7 @@ class StratumApp:
                 ui.markdown('### Open Project')
                 ui.upload(on_upload=self.on_upload_project, label='Select project JSON', auto_upload=True).props('accept=".json"')
         # Build main UI
-        with ui.row().classes('w-full h-screen flex-nowrap gap-0'):
+        with (ui.row().classes('w-full h-screen flex-nowrap gap-0')):
             # Sidebar with logo and controls
             with ui.column().classes('flex-none w-64 gap-4 overflow-y-auto h-full bg-neutral-800 text-white overflow-x-hidden'):
                 # New / Open / Save row
@@ -642,19 +642,21 @@ class StratumApp:
 
                 with ui.row().classes("fixed top-4 left-64 right-72 ml-4 mr-4"):
                     # Live preview checkbox in top left corner
-                    with ui.row().classes("z-50 text-white p-2 rounded").style("background-color: rgba(0, 0, 0, 0.75);"):
+                    with ui.row().classes("z-50 text-white rounded").style("background-color: rgba(0, 0, 0, 0.75);"):
                         self.live_preview_checkbox = ui.checkbox('Live Preview', value=True, on_change=lambda e: self.toggle_live_preview(e.value)).tooltip('Enable live preview mode for faster updates')
                         ui.button(icon='fit_screen', on_click=self.image_component.reset_transform).tooltip("Recenter preview").props("flat round")
 
-                with ui.row().classes("fixed top-4 "):
+                        with ui.dropdown_button(icon="image", auto_close=True).props("flat round").tooltip("Image tools"):
+                            ui.item('Replace Image', on_click=self.reset_image)
+                            ui.item('Item 2', on_click=lambda: ui.notify('You clicked item 2'))
+
+                with ui.row().classes("fixed top-2 "):
                     with ui.row().classes("flex-grow justify-center p-2"):
                         self.status_banner = ui.label().classes('z-50 text-sm rounded p-2')
                         self.status_banner.set_visibility(False)
 
-                ui.button(icon='cleaning_services', on_click=self.reset_image).props('flat round').classes('fixed bottom-4 right-4 z-50').tooltip('Reset')
-
                 # Position info card
-                with ui.column().classes('fixed top-4 right-4 p-2 rounded w-72 overflow-y-auto').style("background-color: rgba(0, 0, 0, 0.75);") as self.position_info_wrapper:
+                with ui.column().classes('fixed top-4 right-4 p-1 rounded w-72 overflow-y-auto').style("background-color: rgba(0, 0, 0, 0.75);") as self.position_info_wrapper:
                     ui.button(
                         icon='close',
                         on_click=lambda: setattr(self.position_info_wrapper, 'visible', False)
