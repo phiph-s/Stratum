@@ -54,55 +54,85 @@ def generate_shades_td(
     td_values,
     max_layer_values,
     layer_height,
-    td_to_blend_factor=0.1   # maps TD → effective blend distance (≈ TD/10)
 ):
     """
-    Generate printable shades for a sequence of filaments using Transmission Distance (TD),
-    with an exponential attenuation model and a practical TD→blend-distance mapping.
+    Generate printable shades per filament using an internal RGBA stack model.
 
-        blend(h) = 1 - exp(-h / td_eff),  where td_eff = TD * td_to_blend_factor (≈ TD/10)
-
-    Always generates exactly max_layer_values[i] shades for each filament.
-
-    Args:
-        filament_order (list[(R,G,B)]): List of filament base colors (0–255).
-        td_values (list[float]): Transmission Distance per filament (mm). Index 0 unused.
-        max_layer_values (list[int]): Max layers per filament. Index 0 unused.
-        layer_height (float): Layer height (mm).
-        td_to_blend_factor (float): Factor converting TD → effective blend distance. Default 0.1.
+    For filament i>0:
+      - Build a stack of L layers (L = 1..max_layers[i]),
+        each layer having thickness=h=layer_height and color=filament_order[i].
+      - Convert per-layer thickness to an opacity (alpha) via the fitted curve:
+            thick_ratio = h / td_eff
+            alpha = clamp(o + (A*log1p(k*thick_ratio) + b*thick_ratio), 0, 1)
+        with constants (o,A,k,b) from the reference implementation.
+      - Composite L identical RGBA layers (top→bottom) over the starting color
+        (the last shade of the previous filament, preserving your original logic).
 
     Returns:
-        list[list[(R,G,B)]]: Shades per filament.
+        list of lists of RGB tuples
+        - Filament 0: [base_color] (as in your original function)
+        - Filament i>0: [shade@L=1, shade@L=2, ..., shade@L=max_layers[i]]
     """
-    if layer_height <= 0:
-        raise ValueError("layer_height must be > 0")
-    if td_to_blend_factor <= 0:
-        raise ValueError("td_to_blend_factor must be > 0")
+    # --- validation to mirror the original expectations
+    n = len(filament_order)
+    assert len(td_values) == n, "td_values must align with filament_order"
+    assert len(max_layer_values) == n, "max_layer_values must align with filament_order"
+    assert layer_height > 0, "layer_height must be positive"
+
+    # Opacity fit constants (same as your reference):
+    o = -1.2416557e-02
+    A =  9.6407950e-01
+    k =  3.4103447e01
+    b = -4.1554203e00
+
+    def clamp01(x: float) -> float:
+        return 0.0 if x < 0.0 else (1.0 if x > 1.0 else x)
+
+    def alpha_from_thickness(h: float, td_eff: float) -> float:
+        """Map one-layer thickness to opacity using the fitted curve."""
+        if td_eff <= 0:
+            return 1.0  # degenerate: fully opaque immediately
+        thick_ratio = h / td_eff
+        # alpha = o + (A*log1p(k*ratio) + b*ratio), then clamped to [0,1]
+        a = o + (A * math.log1p(k * thick_ratio) + b * thick_ratio)
+        return clamp01(a)
 
     all_shades = []
 
     for i, cur in enumerate(filament_order):
+        cur = tuple(int(c) for c in cur)
         if i == 0:
-            # First filament: no blending, just the base color
-            all_shades.append([tuple(cur)])
+            # First filament: original behavior — just return the base color.
+            all_shades.append([cur])
             continue
 
-        prev_shades = all_shades[i - 1]
-        base_color = prev_shades[-1]  # blend from last shade of previous filament
+        # Starting/background color for this filament = last shade of previous filament
+        base_color = all_shades[i - 1][-1]
 
-        td = td_values[i]
-        if td <= 0:
-            raise ValueError(f"TD for filament {i} must be > 0 (got {td}).")
+        # Effective TD using TD/10 (can tweak here if you calibrate differently)
+        td_eff = td_values[i]
 
-        td_eff = td * td_to_blend_factor
-        max_layers = max(1, int(max_layer_values[i]))
+        # Per-layer opacity (each physical layer is one 'h' thick)
+        h = layer_height
+        alpha = alpha_from_thickness(h, td_eff)  # constant per layer of this filament
+
+        # Precompute (1 - alpha) since we raise it a lot
+        one_minus_alpha = 1.0 - alpha
 
         shades = []
+        max_layers = max_layer_values[i]
+
+        # Build cumulative RGBA compositing for stacks of L=1..max_layers:
+        #   For L identical layers over base:
+        #     total_top_weight = 1 - (1 - alpha)**L
+        #     C_out = base*(1 - total_top_weight) + top*total_top_weight
         for L in range(1, max_layers + 1):
-            h = L * layer_height
-            blend = 1.0 - math.exp(-h / td_eff)
+            # Remaining transmission after L identical layers
+            remain_after = one_minus_alpha ** L
+            w_top = 1.0 - remain_after  # how much the top color contributes after L layers
+
             shade = tuple(
-                int(round(base_color[c] * (1.0 - blend) + cur[c] * blend))
+                int(round(base_color[c] * (1.0 - w_top) + cur[c] * w_top))
                 for c in range(3)
             )
             shades.append(shade)
@@ -110,6 +140,7 @@ def generate_shades_td(
         all_shades.append(shades)
 
     return all_shades
+
 
 
 # Test TD function

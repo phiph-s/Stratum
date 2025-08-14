@@ -344,6 +344,7 @@ class StratumApp:
             self.placeholder.visible = False
             self.image_component.visible = True
             self.image_component.set_source(f'data:image/png;base64,{b64}')
+            self.image_component.set_max_size(self.size_input.value)
         settings = project.get('settings', {})
         self.layer_input.value = settings.get('layer_height', 0.2)
         self.base_input.value = settings.get('base_layers', 3)
@@ -367,6 +368,7 @@ class StratumApp:
         self.placeholder.visible = False
         self.image_component.visible = True
         self.image_component.set_source(f'data:image/png;base64,{b64}')
+        self.image_component.set_max_size(self.size_input.value)
         self.upload_image.reset()
 
     async def on_redraw(self):
@@ -443,24 +445,25 @@ class StratumApp:
                 progress_cb=lambda v: setattr(self.progress_bar, 'value', v * 0.5),
                 min_area=min_area, simplify_tol=simplify_tol, marching_squares_level=marching_squares_level
             )
-            #img = render_polygons_to_pil_image(
-            #    polys, shades, segmented.size, max_size=self.size_input.value,
-            #    progress_cb=lambda v: setattr(self.progress_bar, 'value', 0.5 + 0.5 * v)
-            #)
-            svg = render_polygons_to_svg(
+            img = render_polygons_to_pil_image(
                 polys, shades, segmented.size, max_size=self.size_input.value,
                 progress_cb=lambda v: setattr(self.progress_bar, 'value', 0.5 + 0.5 * v)
             )
-            return segmented, polys, svg, shades
+            #svg = render_polygons_to_svg(
+            #    polys, shades, segmented.size, max_size=self.size_input.value,
+            #    progress_cb=lambda v: setattr(self.progress_bar, 'value', 0.5 + 0.5 * v)
+            #)
+            return segmented, polys, img, shades
         loop = asyncio.get_running_loop()
-        self.segmented_image, self.polygons, svg, self.filament_shades = await loop.run_in_executor(None, compute)
+        self.segmented_image, self.polygons, img, self.filament_shades = await loop.run_in_executor(None, compute)
         self.rendered_image = img
         self.rendered_image_size = img.size
         buf = io.BytesIO()
         img.save(buf, format='PNG')
         data = base64.b64encode(buf.getvalue()).decode()
         self.image_component.set_source(f'data:image/png;base64,{data}', True)
-        self.image_component.set_svg_content(svg, reset=True)
+        self.image_component.set_max_size(self.size_input.value)
+        #self.image_component.set_svg_content(svg, reset=True)
 
         self.progress_bar.visible = False
         self.redraw_button.enable()
@@ -722,9 +725,12 @@ class StratumApp:
                     td_values.append(data.get('td_value', 0.5))
 
                 def compute_live_preview():
-                    shades = generate_shades_td(colors, td_values, max_layers, float(self.layer_input.value))
-                    segmented = segment_to_shades(self.original_image, shades)
-                    return segmented, shades
+                    try:
+                        shades = generate_shades_td(colors, td_values, max_layers, float(self.layer_input.value))
+                        segmented = segment_to_shades(self.original_image, shades)
+                        return segmented, shades
+                    except Exception as e:
+                        print(f"Error in live preview computation: {str(e)}")
 
                 loop = asyncio.get_running_loop()
                 self.live_preview_segmented, self.filament_shades = await loop.run_in_executor(None, compute_live_preview)
@@ -734,6 +740,7 @@ class StratumApp:
                 self.live_preview_segmented.save(buf, format='PNG')
                 data = base64.b64encode(buf.getvalue()).decode()
                 self.image_component.set_source(f'data:image/png;base64,{data}')
+                self.image_component.set_max_size(self.size_input.value)
                 self.rendered_image = self.live_preview_segmented
 
                 # Keep export button disabled for live preview
@@ -747,7 +754,7 @@ class StratumApp:
                 self.status_banner.set_visibility(True)
 
             except Exception as e:
-                ui.notify(f'Live preview error: {str(e)}', color='orange')
+                print(f"Error updating live preview: {str(e)}")
 
             # Check if restart is needed
             if not self.live_preview_restart_pending:
@@ -773,6 +780,7 @@ class StratumApp:
                 self.rendered_image.save(buf, format='PNG')
                 data = base64.b64encode(buf.getvalue()).decode()
                 self.image_component.set_source(f'data:image/png;base64,{data}')
+                self.image_component.set_max_size(self.size_input.value)
                 # Enable export if we have polygons
                 if self.polygons:
                     self.export_button.enable()
@@ -782,8 +790,10 @@ class StratumApp:
                 self.original_image.save(buf, format='PNG')
                 data = base64.b64encode(buf.getvalue()).decode()
                 self.image_component.set_source(f'data:image/png;base64,{data}')
+                self.image_component.set_max_size(self.size_input.value)
 
     def on_layer_height_change(self, e):
         """Handle layer height changes and trigger live preview"""
         if self.live_preview_enabled:
             asyncio.create_task(self.update_live_preview())
+

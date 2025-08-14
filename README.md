@@ -187,3 +187,8 @@ python main.py --reload
 - Image processing powered by [scikit-image](https://scikit-image.org/).
 - 3D mesh generation using [trimesh](https://trimsh.org/).
 - Geometric operations via [Shapely](https://shapely.readthedocs.io/).
+- Portions of opacity calculation adapted from
+  [AutoForge – OptimizerHelper.py](https://github.com/hvoss-techfak/AutoForge/blob/main/src/autoforge/Helper/OptimizerHelper.py)
+  by **hvoss-techfak**, licensed under
+  [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/).
+  Changes include integration into `generate_shades_td` and removal of differentiable pipeline components.

@@ -36,6 +36,10 @@ class ZoomableImage(Element, component='zoomable_image.vue'):
         svg_data_url = f'data:image/svg+xml;base64,{svg_base64}'
         self.set_source(svg_data_url, reset)
 
+    def set_max_size(self, size: float) -> None:
+        """Set the maximum size for ruler measurements."""
+        self.run_method('setMaxSize', size)
+
     def reset_transform(self) -> None:
         """Reset zoom & pan to initial fit."""
         self.run_method('reset')
