@@ -1,4 +1,5 @@
 # Stratum
+<a href="https://github.com/phiph-s/Stratum">Stratum</a> © 2025 by <a href="https://github.com/phiph-s/">Philipp Seelos</a> is licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a><img src="https://mirrors.creativecommons.org/presskit/icons/cc.svg" alt="" style="max-width: 1em;max-height:1em;margin-left: .2em;"><img src="https://mirrors.creativecommons.org/presskit/icons/by.svg" alt="" style="max-width: 1em;max-height:1em;margin-left: .2em;"><img src="https://mirrors.creativecommons.org/presskit/icons/nc.svg" alt="" style="max-width: 1em;max-height:1em;margin-left: .2em;"><img src="https://mirrors.creativecommons.org/presskit/icons/sa.svg" alt="" style="max-width: 1em;max-height:1em;margin-left: .2em;">
 
 <img src="docs/images/screenshot1.png" alt="Stratum" width="400"> <img src="docs/images/screenshot2.png" alt="Stratum" width="400">
 <img src="docs/images/screenshot3.png" alt="Stratum" width="400"> <img src="docs/images/screenshot4.png" alt="Stratum" width="400">
