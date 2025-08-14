@@ -14,7 +14,6 @@ project_path = None
 @ui.page('/')
 def main_page():
     sapp = StratumApp()
-    sapp.build()
 
     if project_path:
         try:
