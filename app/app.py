@@ -33,7 +33,7 @@ class StratumApp:
             with ui.column().classes('flex-none w-64 gap-4 overflow-y-auto h-full bg-neutral-800 text-white overflow-x-hidden'):
                 with ui.row().classes('fixed pt-5 p-4 w-64 top-0 left-0 right-0 bg-neutral-900 items-center gap-2'):
                     ui.image('logo.png').classes('w-10 h-10 mr-4')
-                    ui.button(icon='note_add', on_click=self._new_project).props('color=warning size=sm padding="7px 7px"').tooltip('New Project')
+                    ui.button(icon='note_add', on_click=self.new_project).props('color=warning size=sm padding="7px 7px"').tooltip('New Project')
                     # Project IO
                     self.project_io = ProjectIO(
                         get_project_data=self._gather_project_data,
@@ -88,7 +88,7 @@ class StratumApp:
     # ---------------------- Image & clicks --------------------------------
     def _on_upload_image(self, img: Image.Image):
         self.original_image = img
-        self.viewer.set_pil(img)
+        self.viewer.set_pil(img, reset=True)
         self.viewer.set_max_size(self.controls.size_input.value)
         self.viewer.show_placeholder(False)
         asyncio.create_task(self._maybe_live_preview())
@@ -270,7 +270,7 @@ class StratumApp:
             ui.download.content(buf.getvalue(), 'meshes.zip')
 
     # ---------------------- Utilities ------------------------------------
-    def _new_project(self):
+    def new_project(self):
         self.filaments_panel.set_filaments([])
         self.original_image = None
         self.segmented_image = None

@@ -49,14 +49,14 @@ class ProjectIO:
         file = files[0]
         with open(file, 'r') as f:
             content = f.read()
-        self._load_project(content)
+        self.load_project(content)
         self.last_saved_path = file
 
     def _on_upload_project(self, files):
         content = files.content.read().decode()
-        self._load_project(content)
+        self.load_project(content)
 
-    def _load_project(self, content: str):
+    def load_project(self, content: str):
         project = json.loads(content)
         self.set_project_data(project)
         img_data = project.get('image')

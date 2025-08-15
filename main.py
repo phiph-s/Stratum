@@ -19,8 +19,8 @@ def main_page():
         try:
             with open(project_path, 'r') as f:
                 content = f.read()
-                sapp.load_project(content)
-                sapp.last_saved_path = project_path
+                sapp.project_io.load_project(content)
+                sapp.project_io.last_saved_path = project_path
         except Exception as e:
             print(f"Error loading project {project_path}: {str(e)}")
             ui.notify(f'Error loading project: {str(e)}', color='red')
