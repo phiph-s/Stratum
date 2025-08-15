@@ -82,14 +82,15 @@ class FilamentPanel:
                 is_bright = (r + g + b) / 3 > 128
             except Exception:
                 is_bright = False
-
+            color = 'black' if is_bright else 'white'
+            color_rev = 'white' if is_bright else 'black'
             with self.container:
                 row_classes = 'items-center gap-1 p-1 rounded'
                 row_classes += ' text-black' if is_bright else ' text-white border border-gray-400'
                 with ui.row().classes('w-full ' + row_classes).style(f'background-color:{data.get("color", "#000000")};'):
                     with ui.column().classes('gap-1 flex-shrink-0'):
-                        ui.button(icon='keyboard_arrow_up', on_click=lambda _, i=real_idx: self._move(i, i+1)).props('flat round size=xs').style('min-width: 20px; min-height: 20px;')
-                        ui.button(icon='keyboard_arrow_down', on_click=lambda _, i=real_idx: self._move(i, i-1)).props('flat round size=xs').style('min-width: 20px; min-height: 20px;')
+                        ui.button(icon='keyboard_arrow_up', on_click=lambda _, i=real_idx: self._move(i, i+1)).props('flat round size=xs').style(f'min-width: 20px; min-height: 20px;').classes(row_classes)
+                        ui.button(icon='keyboard_arrow_down', on_click=lambda _, i=real_idx: self._move(i, i-1)).props('flat round size=xs').style(f'min-width: 20px; min-height: 20px;').classes(row_classes)
 
                     with ui.column().classes('flex-grow gap-0 min-w-0'):
                         with ui.row().classes('items-center gap-2 w-full justify-between'):
@@ -107,8 +108,7 @@ class FilamentPanel:
                                 ui.icon('vertical_align_bottom').classes('text-xs flex-shrink-0 pr-1')
                                 ui.label('First layer').classes('text-xs').tooltip('Bottom layers set in Export settings')
                         else:
-                            color = 'black' if is_bright else 'white'
-                            color_rev = 'white' if is_bright else 'black'
+
                             with ui.row().classes('items-center gap-1 w-full flex-nowrap'):
                                 slider = ui.slider(
                                     value=instance_max_layers, min=1, max=20,
