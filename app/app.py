@@ -27,10 +27,9 @@ class StratumApp:
         self.last_input_colors = []
 
         # Components -------------------------------------------------------
-        self.banner = StatusBanner()
         with ui.row().classes('w-full h-screen flex-nowrap gap-0'):
             # Sidebar
-            with ui.column().classes('flex-none w-64 gap-4 overflow-y-auto h-full bg-neutral-800 text-white overflow-x-hidden'):
+            with ui.column().classes('flex-none w-64 gap-0 overflow-y-auto h-full bg-neutral-800 text-white overflow-x-hidden'):
                 with ui.row().classes('fixed pt-5 p-4 w-64 top-0 left-0 right-0 bg-neutral-900 items-center gap-2'):
                     ui.image('logo.png').classes('w-10 h-10 mr-4')
                     ui.button(icon='note_add', on_click=self.new_project).props('color=warning size=sm padding="7px 7px"').tooltip('New Project')
@@ -61,6 +60,7 @@ class StratumApp:
 
             # Main area
             with ui.column().classes('flex-auto items-center justify-center overflow-y-auto h-full'):
+
                 self.viewer = ImageViewer(on_pixel=self._on_pixel_click, on_upload_image=self._on_upload_image)
                 with ui.row().classes('fixed top-4 left-64 right-72 ml-4 mr-4'):
                     with ui.row().classes('z-50 text-white rounded').style('background-color: rgba(0, 0, 0, 0.75);'):
@@ -68,7 +68,7 @@ class StratumApp:
                         ui.button(icon='fit_screen', on_click=self.viewer.reset_transform).tooltip('Recenter preview').props('flat round')
                         with ui.dropdown_button(icon='image', auto_close=True).props('flat round').tooltip('Image tools'):
                             ui.item('Replace Image', on_click=self._reset_image)
-
+                self.banner = StatusBanner()
                 self.position_info = PositionInfo()
 
         ui.dark_mode().enable(); ui.query('.nicegui-content').classes('p-0')
@@ -107,6 +107,7 @@ class StratumApp:
         self.viewer.show_placeholder(True)
 
     def _on_pixel_click(self, e):
+        print(self.filament_shades, self.last_input_colors)
         if not self.rendered_image or not self.filament_shades:
             ui.notify('Generate the preview first', color='orange'); return
         r,g,b = e.args['detail']['rgb']['r'], e.args['detail']['rgb']['g'], e.args['detail']['rgb']['b']
@@ -159,10 +160,12 @@ class StratumApp:
             elif self.original_image:
                 self.viewer.set_pil(self.original_image)
 
-    def _apply_live_render(self, png_bytes: bytes):
+    def _apply_live_render(self, png_bytes: bytes, shades: list, last_input_colors: list):
         self.rendered_image = Image.open(io.BytesIO(png_bytes))
         self.viewer.set_pil(self.rendered_image)
         self.viewer.set_max_size(self.controls.size_input.value)
+        self.filament_shades = shades
+        self.last_input_colors = last_input_colors
 
     # ---------------------- Heavy redraw/export ---------------------------
     async def _on_redraw(self):

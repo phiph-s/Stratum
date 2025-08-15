@@ -2,7 +2,7 @@ from nicegui import ui
 
 class StatusBanner:
     def __init__(self):
-        with ui.row().classes('fixed top-2 '):
+        with ui.row().classes('fixed top-2'):
             with ui.row().classes('flex-grow justify-center p-2'):
                 self.label = ui.label().classes('z-50 text-sm rounded p-2')
                 self.label.set_visibility(False)

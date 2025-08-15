@@ -4,7 +4,7 @@ from nicegui import ui
 
 class LivePreviewController:
     """Manages live preview loop; pulls current inputs via callbacks from main."""
-    def __init__(self, *, get_image: Callable[[], object], get_filaments: Callable[[], List[dict]], get_layer_height: Callable[[], float], compute_shades: Callable, segment_image: Callable, on_render: Callable[[bytes], None], on_status_live: Callable[[], None], on_after_change: Callable[[], None]):
+    def __init__(self, *, get_image: Callable[[], object], get_filaments: Callable[[], List[dict]], get_layer_height: Callable[[], float], compute_shades: Callable, segment_image: Callable, on_render: Callable[[bytes, [], []], None], on_status_live: Callable[[], None], on_after_change: Callable[[], None]):
         self.get_image = get_image
         self.get_filaments = get_filaments
         self.get_layer_height = get_layer_height
@@ -46,13 +46,13 @@ class LivePreviewController:
                 def compute():
                     shades = self.compute_shades(colors, td_values, max_layers, float(self.get_layer_height()))
                     segmented = self.segment_image(self.get_image(), shades)
-                    return segmented
+                    return segmented, shades
 
                 loop = asyncio.get_running_loop()
-                segmented = await loop.run_in_executor(None, compute)
+                segmented, shades = await loop.run_in_executor(None, compute)
 
                 buf = io.BytesIO(); segmented.save(buf, format='PNG')
-                self.on_render(buf.getvalue())
+                self.on_render(buf.getvalue(), shades, colors)
                 self.on_status_live()
                 self.on_after_change()
             except Exception as e:
