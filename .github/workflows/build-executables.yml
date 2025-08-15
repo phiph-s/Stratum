@@ -18,13 +18,13 @@ jobs:
         os: [windows-latest, ubuntu-latest]
         include:
           - os: windows-latest
-            artifact_name: StratumNG-Windows
+            artifact_name: Stratum-Windows
             executable_extension: .exe
           - os: ubuntu-latest
-            artifact_name: StratumNG-Linux
+            artifact_name: Stratum-Linux
             executable_extension: ""
           - os: macos-latest
-            artifact_name: StratumNG-macOS
+            artifact_name: Stratum-macOS
             executable_extension: .app
 
     runs-on: ${{ matrix.os }}
@@ -152,7 +152,7 @@ jobs:
     - name: Upload installer packages
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.artifact_name }}-Installer
+        name: ${{ matrix.artifact_name }}-Binary
         path: Stratum-*
 
   release:
@@ -178,7 +178,7 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          StratumNG-*-Installer/StratumNG-*-Installer.*
+          Stratum-*-Binary/Stratum-*
         draft: false
         prerelease: ${{ steps.prerelease_check.outputs.is_prerelease }}
         generate_release_notes: true
