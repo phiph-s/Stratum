@@ -179,7 +179,7 @@ class FilamentManager:
         """Build the filament management dialog"""
         self.on_add_callback = on_add_callback
 
-        with ui.dialog().style('z-index:50').props('position=left') as self.filament_dialog:
+        with ui.dialog().style('z-index:80').props('position=left') as self.filament_dialog:
             with ui.card().classes('w-80 h-full ml-40 p-0').style('max-height: 600px; left: 100px;'):
                 with ui.column().classes('w-full flex-auto gap-0'):
                     with ui.tabs().classes('w-full') as tabs:

@@ -72,6 +72,7 @@ class StratumApp:
                 self.position_info = PositionInfo()
 
         ui.dark_mode().enable(); ui.query('.nicegui-content').classes('p-0')
+        self.filament_manager.build_dialog(self.filaments_panel.add_from_manager)
 
         # Live preview controller (pulls state via lambdas)
         self.live = LivePreviewController(
