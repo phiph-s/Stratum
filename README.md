@@ -44,7 +44,7 @@ Stratum is a desktop application designed to help users transform 2D images into
 3. Extract and run the executable.
 
 ### Option 2: Install from Source
-Requires Python 3.8 or newer.
+Requires Python 3.10 or newer.
 
 ```bash
 # Clone the repository
@@ -101,7 +101,7 @@ python main.py
 - Use contrasting colors for clarity.
 
 ### Print Settings
-- Use 0.1-0.2mm layer heights for detail.
+- Use <0.1 layer height for more color shades and details.
 - Ensure good bed adhesion with base layers.
 
 ## Technical Details
