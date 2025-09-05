@@ -16,26 +16,34 @@ class ProjectIO:
                 ui.markdown('### Open Project')
                 ui.upload(on_upload=self._on_upload_project, label='Select project JSON', auto_upload=True).props('accept=".json"')
 
-    async def save(self, save_as=False):
+    def save(self, save_as=False):
+        """Save project data - synchronous version to avoid UI context issues."""
         data = json.dumps(self.get_project_data())
         if app.native.main_window:
-            import webview
-            if not save_as and self.last_saved_path:
-                file = self.last_saved_path
-            else:
-                result = await app.native.main_window.create_file_dialog(webview.SAVE_DIALOG, save_filename='project.json')
-                if not result:
-                    return
-                file = result[0]
-            try:
-                with open(file, 'w') as f:
-                    f.write(data)
-                self.last_saved_path = file
-                ui.notify(f'Project saved to {file}', color='green')
-            except Exception as e:
-                ui.notify(f'Error saving project: {str(e)}', color='red')
+            # For native apps, we need to use async file dialog
+            self._save_native_async(data, save_as)
         else:
+            # For web, we can use download directly since we're in sync context
             ui.download.content(data, 'project.json')
+            ui.notify('Project downloaded', color='green')
+
+    async def _save_native_async(self, data: str, save_as: bool):
+        """Handle native file saving asynchronously."""
+        import webview
+        if not save_as and self.last_saved_path:
+            file = self.last_saved_path
+        else:
+            result = await app.native.main_window.create_file_dialog(webview.SAVE_DIALOG, save_filename='project.json')
+            if not result:
+                return
+            file = result[0]
+        try:
+            with open(file, 'w') as f:
+                f.write(data)
+            self.last_saved_path = file
+            ui.notify(f'Project saved to {file}', color='green')
+        except Exception as e:
+            ui.notify(f'Error saving project: {str(e)}', color='red')
 
     def open_dialog(self):
         self.project_dialog.open()

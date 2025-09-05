@@ -46,10 +46,10 @@ class StratumApp:
                     )
                     ui.button(icon='folder_open', on_click=self.project_io.open_native).props('color=primary size=sm padding="7px 7px"').tooltip('Open Project')
                     if app.native.main_window:
-                        with ui.dropdown_button(icon='save', split=True, on_click=lambda: asyncio.create_task(self.project_io.save(False))).props('size=sm padding="7px 7px"'):
-                            ui.button('Save as', on_click=lambda: asyncio.create_task(self.project_io.save(True))).props('color=primary flat ')
+                        with ui.dropdown_button(icon='save', split=True, on_click=lambda: self.project_io.save(False)).props('size=sm padding="7px 7px"'):
+                            ui.button('Save as', on_click=lambda: self.project_io.save(True)).props('color=primary flat ')
                     else:
-                        ui.button(icon='save', on_click=lambda: asyncio.create_task(self.project_io.save(False))).props('color=primary size=sm padding="7px 7px"').tooltip('Save Project')
+                        ui.button(icon='save', on_click=lambda: self.project_io.save(False)).props('color=primary size=sm padding="7px 7px"').tooltip('Save Project')
 
                 # Filaments panel
                 self.filaments_panel = FilamentPanel(
@@ -325,7 +325,7 @@ class StratumApp:
 
                 with ui.column().classes('mt-4 gap-2'):
                     ui.markdown('**Normal Mode:** Traditional layer-based printing with customizable filament order and layer counts.')
-                    ui.markdown('**Multimaterial Mode:** Advanced mode for multimaterial printers with base color selection and specialized export options.')
+                    ui.markdown('**Multimaterial Mode:** Uses multiple different filaments per layer to get even more colors. The order of filaments will be generated automatically.')
 
                 with ui.row().classes('justify-end gap-2 mt-4'):
                     ui.button('Cancel', on_click=self._new_project_dialog.close)
@@ -348,6 +348,14 @@ class StratumApp:
 
         # Hide/show live preview checkbox based on mode
         self.live_preview_checkbox.visible = not is_multimaterial
+
+        # Also disable live preview functionality in multimaterial mode
+        if is_multimaterial:
+            self.live_preview_checkbox.value = False
+            self.live.set_enabled(False)
+        else:
+            self.live_preview_checkbox.value = True
+            self.live.set_enabled(True)
 
         self._new_project_dialog.close()
 
