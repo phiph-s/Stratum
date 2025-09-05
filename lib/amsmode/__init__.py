@@ -16,28 +16,30 @@ Key features:
 
 from .core import (
     # Core color functions
-    clamp01,
     alpha_from_thickness,
-    composite_colors,
-    color_distance,
-    simulate_color_blend,
-    
+
     # Color sequence calculation
-    calculate_color_sequence,
     calculate_color_sequence_with_dithering,
     calculate_color_sequence_with_dithering_cached,
     clear_color_sequence_cache,
     
     # Layer generation
     generate_enhanced_layers,
-    
+
+    # Print simulation
+    render_result_image
+)
+
+from .utils import (
     # Dithering functions
     calculate_dither_blend,
     should_use_dithering,
     find_best_dither,
-    
-    # Print simulation
-    render_result_image
+    calculate_color_sequence,
+    composite_colors,
+    color_distance,
+    simulate_color_blend,
+    clamp01
 )
 
 from .stl_generator import (

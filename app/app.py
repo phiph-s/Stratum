@@ -154,11 +154,7 @@ class StratumApp:
         # Apply multimaterial mode first
         is_multimaterial = project.get('is_multimaterial_mode', False)
         self.is_multimaterial_mode = is_multimaterial
-
-        # Update UI mode before setting filaments
-        self.filaments_panel.set_multimaterial_mode(is_multimaterial)
-        self.controls.set_multimaterial_mode(is_multimaterial)
-        self.live_preview_checkbox.visible = not is_multimaterial
+        self._switch_to_multimaterial_mode(is_multimaterial)
 
         # Apply filaments
         self.filaments_panel.set_filaments(project.get('filaments', []))
@@ -283,7 +279,8 @@ class StratumApp:
                     base_filament=base_filament_name,
                     layer_height=float(self.controls.layer_input.value),
                     max_layers=10,  # Use a reasonable max for multimaterial
-                    allow_top_layer_dithering=mm_settings.get('dithering', False),
+                    allow_top_layer_dithering=False,
+                    dithering=mm_settings.get('dithering', False),
                     min_layers_between_dithering=0,
                     max_size=float(self.controls.size_input.value) * 10,  # Convert cm to mm
                     line_width=0.4,  # Typical nozzle width
@@ -427,6 +424,22 @@ class StratumApp:
                     ui.button('Cancel', on_click=self._new_project_dialog.close)
                     ui.button('Create', on_click=self._create_project_with_mode).props('color=primary')
 
+    def _switch_to_multimaterial_mode(self, is_multimaterial: bool):
+        self._project_mode_toggle.value = 'Multimaterial' if is_multimaterial else 'Normal'
+        self.filaments_panel.set_multimaterial_mode(is_multimaterial)
+        self.controls.set_multimaterial_mode(is_multimaterial)
+
+        self.live_preview_checkbox.visible = not is_multimaterial
+
+        # Also disable live preview functionality in multimaterial mode
+        if is_multimaterial:
+            self.live_preview_checkbox.value = False
+            self.live.set_enabled(False)
+        else:
+            self.live_preview_checkbox.value = True
+            self.live.set_enabled(True)
+
+
     def _create_project_with_mode(self):
         is_multimaterial = self._project_mode_toggle.value == 'Multimaterial'
         self.is_multimaterial_mode = is_multimaterial
@@ -439,19 +452,7 @@ class StratumApp:
         self.viewer.show_placeholder(True)
 
         # Update UI based on mode
-        self.filaments_panel.set_multimaterial_mode(is_multimaterial)
-        self.controls.set_multimaterial_mode(is_multimaterial)
-
-        # Hide/show live preview checkbox based on mode
-        self.live_preview_checkbox.visible = not is_multimaterial
-
-        # Also disable live preview functionality in multimaterial mode
-        if is_multimaterial:
-            self.live_preview_checkbox.value = False
-            self.live.set_enabled(False)
-        else:
-            self.live_preview_checkbox.value = True
-            self.live.set_enabled(True)
+        self._switch_to_multimaterial_mode(is_multimaterial)
 
         self._new_project_dialog.close()
 
