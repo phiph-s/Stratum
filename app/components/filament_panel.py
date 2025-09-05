@@ -202,9 +202,7 @@ class FilamentPanel:
 
     def _set_base_color(self, idx: int):
         """Set the base color filament index."""
-        print(f"_set_base_color called with idx={idx}, current base_color_index={self.base_color_index}")
         self.base_color_index = idx
-        print(f"After setting: base_color_index={self.base_color_index}")
         self._refresh()  # Force a refresh to update the UI
         self.on_change(self.filaments)
 
@@ -217,8 +215,6 @@ class FilamentPanel:
     def _create_base_color_handler(self, real_idx: int):
         """Create a handler for setting the base color."""
         def handler(*args):
-            # Debugging: Print the real_idx and base_color_index before setting
-            print(f"Setting base color: real_idx={real_idx}, current_base_color_index={self.base_color_index}")
             self._set_base_color(real_idx)
         return handler
 

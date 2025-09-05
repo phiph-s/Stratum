@@ -7,6 +7,8 @@ from lib.filament_manager import FilamentManager
 from lib.mesh_generator import create_layered_polygons_parallel, render_polygons_to_pil_image, polygons_to_meshes_parallel
 from lib.render_utils import render_polygons_to_svg
 
+import numpy as np
+
 from app.components import (
     FilamentPanel, ControlsPanel, StatusBanner, ImageViewer,
     PositionInfo, ProjectIO, LivePreviewController
@@ -227,44 +229,138 @@ class StratumApp:
         total_pixels = img_width * img_height
         base_pixels = 1000 * 1000
         resolution_scale = (total_pixels / base_pixels) ** 0.5
-        BASE_RES_PRESETS = {
-            '◔': {'simplify_tol': 1.0, 'marching_squares_level': 0.5},
-            '◑': {'simplify_tol': 0.5, 'marching_squares_level': 0.25},
-            '◕': {'simplify_tol': 0.1, 'marching_squares_level': 0.05},
-            '●': {'simplify_tol': 0.01, 'marching_squares_level': 0.5},
-        }
-        BASE_DETAIL_PRESETS = {
-            '◔': {'min_area': 3},
-            '◑': {'min_area': 1},
-            '◕': {'min_area': 0.5},
-            '●': {'min_area': 0.1},
-        }
-        base_res = BASE_RES_PRESETS[self.controls.resolution_mode.value]
-        base_detail = BASE_DETAIL_PRESETS[self.controls.detail_mode.value]
-        simplify_tol = max(0.001, min(10.0, base_res['simplify_tol'] / resolution_scale))
-        marching_squares_level = max(0.005, min(1.0, base_res['marching_squares_level'] / resolution_scale))
-        min_area = max(0.01, min(100.0, base_detail['min_area'] * resolution_scale))
 
-        def compute():
-            shades = generate_shades_td(colors, td_values, max_layers, float(self.controls.layer_input.value))
-            segmented = segment_to_shades(self.original_image, shades)
-            polys = create_layered_polygons_parallel(
-                segmented, shades,
-                progress_cb=lambda v: setattr(self.controls.progress_bar, 'value', v * 0.5),
-                min_area=min_area, simplify_tol=simplify_tol, marching_squares_level=marching_squares_level,
-            )
-            img = render_polygons_to_pil_image(
-                polys, shades, segmented.size, max_size=self.controls.size_input.value,
-                progress_cb=lambda v: setattr(self.controls.progress_bar, 'value', 0.5 + 0.5 * v),
-            )
-            return segmented, polys, img, shades
+        if self.is_multimaterial_mode:
+            # Use new multimaterial AMS mode logic
+            def compute_multimaterial():
+                from lib.amsmode.core import generate_enhanced_layers, render_result_image
 
-        loop = asyncio.get_running_loop()
-        self.segmented_image, self.polygons, img, self.filament_shades = await loop.run_in_executor(None, compute)
-        self.rendered_image = img
-        self.rendered_image_size = img.size
-        self.viewer.set_pil(img, reset=True)
-        self.viewer.set_max_size(self.controls.size_input.value)
+                # Prepare filament data for amsmode
+                available_filaments = {}
+                base_filament_name = None
+
+                # Get base filament from selected base color
+                base_color_index = self.filaments_panel.get_base_color_index()
+                filaments = self.filaments_panel.get_filaments()
+
+                if base_color_index < len(filaments):
+                    base_filament_data = filaments[base_color_index]
+                    base_data = base_filament_data.get('copied_data', {})
+                    if base_filament_data.get('id') is not None:
+                        f_data, _ = self.filament_manager.find_filament_by_id(base_filament_data.get('id'))
+                        if f_data:
+                            base_data = f_data
+                    base_filament_name = base_data.get('name', f'filament_{base_color_index}')
+
+                # Build available_filaments dict
+                for idx, f in enumerate(filaments):
+                    data = f.get('copied_data', {})
+                    if f.get('id') is not None:
+                        f_data, _ = self.filament_manager.find_filament_by_id(f.get('id'))
+                        if f_data:
+                            data = f_data
+
+                    filament_name = data.get('name', f'filament_{idx}')
+                    color = tuple(int(data.get('color', '#000000')[i:i+2], 16) for i in (1,3,5))
+                    td_value = data.get('td_value', 0.5)
+
+                    available_filaments[filament_name] = {
+                        'color': color,
+                        'td': td_value
+                    }
+
+                # Get multimaterial settings
+                mm_settings = self.controls.get_multimaterial_settings()
+                face_down = mm_settings.get('face_down_printing', False)
+
+                # Convert image to numpy array
+                img_array = np.array(self.original_image)[:,:,:3]  # Remove alpha channel if present
+
+                # Generate enhanced layers with progress reporting
+                layers, dither_info = generate_enhanced_layers(
+                    image_array=img_array,
+                    available_filaments=available_filaments,
+                    base_filament=base_filament_name,
+                    layer_height=float(self.controls.layer_input.value),
+                    max_layers=10,  # Use a reasonable max for multimaterial
+                    allow_top_layer_dithering=mm_settings.get('dithering', False),
+                    min_layers_between_dithering=0,
+                    max_size=float(self.controls.size_input.value) * 10,  # Convert cm to mm
+                    line_width=0.4,  # Typical nozzle width
+                    face_down=face_down,
+                    base_layers=int(self.controls.base_input.value),
+                    progress_cb=lambda v: setattr(self.controls.progress_bar, 'value', v * 0.8)  # Use 80% for layer generation
+                )
+
+                # Render result image for preview
+                result_img = render_result_image(
+                    layers=layers,
+                    image_shape=img_array.shape,
+                    available_filaments=available_filaments,
+                    base_filament=base_filament_name,
+                    layer_height=float(self.controls.layer_input.value),
+                    face_down=face_down
+                )
+
+                # Update progress to 100%
+                setattr(self.controls.progress_bar, 'value', 1.0)
+
+                # Convert result back to PIL Image
+                from PIL import Image
+                result_pil = Image.fromarray(result_img)
+
+                return layers, result_pil, dither_info
+
+            loop = asyncio.get_running_loop()
+            self.polygons, img, self.dither_info = await loop.run_in_executor(None, compute_multimaterial)
+            self.rendered_image = img
+            self.rendered_image_size = img.size
+            self.viewer.set_pil(img, reset=True)
+            self.viewer.set_max_size(self.controls.size_input.value)
+
+            # Store layers for export (we'll need to convert this to the expected format later)
+            self.multimaterial_layers = self.polygons
+
+        else:
+            # Use existing traditional logic
+            BASE_RES_PRESETS = {
+                '◔': {'simplify_tol': 1.0, 'marching_squares_level': 0.5},
+                '◑': {'simplify_tol': 0.5, 'marching_squares_level': 0.25},
+                '◕': {'simplify_tol': 0.1, 'marching_squares_level': 0.05},
+                '●': {'simplify_tol': 0.01, 'marching_squares_level': 0.5},
+            }
+            BASE_DETAIL_PRESETS = {
+                '◔': {'min_area': 3},
+                '◑': {'min_area': 1},
+                '◕': {'min_area': 0.5},
+                '●': {'min_area': 0.1},
+            }
+            base_res = BASE_RES_PRESETS[self.controls.resolution_mode.value]
+            base_detail = BASE_DETAIL_PRESETS[self.controls.detail_mode.value]
+            simplify_tol = max(0.001, min(10.0, base_res['simplify_tol'] / resolution_scale))
+            marching_squares_level = max(0.005, min(1.0, base_res['marching_squares_level'] / resolution_scale))
+            min_area = max(0.01, min(100.0, base_detail['min_area'] * resolution_scale))
+
+            def compute():
+                shades = generate_shades_td(colors, td_values, max_layers, float(self.controls.layer_input.value))
+                segmented = segment_to_shades(self.original_image, shades)
+                polys = create_layered_polygons_parallel(
+                    segmented, shades,
+                    progress_cb=lambda v: setattr(self.controls.progress_bar, 'value', v * 0.5),
+                    min_area=min_area, simplify_tol=simplify_tol, marching_squares_level=marching_squares_level,
+                )
+                img = render_polygons_to_pil_image(
+                    polys, shades, segmented.size, max_size=self.controls.size_input.value,
+                    progress_cb=lambda v: setattr(self.controls.progress_bar, 'value', 0.5 + 0.5 * v),
+                )
+                return segmented, polys, img, shades
+
+            loop = asyncio.get_running_loop()
+            self.segmented_image, self.polygons, img, self.filament_shades = await loop.run_in_executor(None, compute)
+            self.rendered_image = img
+            self.rendered_image_size = img.size
+            self.viewer.set_pil(img, reset=True)
+            self.viewer.set_max_size(self.controls.size_input.value)
 
         self.controls.set_busy(False)
         self.controls.enable_export(True)

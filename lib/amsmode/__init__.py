@@ -29,17 +29,15 @@ from .core import (
     clear_color_sequence_cache,
     
     # Layer generation
-    generate_sequential_layers,
     generate_enhanced_layers,
     
     # Dithering functions
-    generate_dither_pattern,
     calculate_dither_blend,
     should_use_dithering,
     find_best_dither,
     
     # Print simulation
-    simulate_realistic_print_with_dithering,
+    render_result_image
 )
 
 from .stl_generator import (
