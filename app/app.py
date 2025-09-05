@@ -25,6 +25,11 @@ class StratumApp:
         self.polygons = None
         self.filament_shades = None
         self.last_input_colors = []
+        self.is_multimaterial_mode = False  # Track project mode
+
+        # Project creation dialog
+        self._new_project_dialog = None
+        self._project_mode_toggle = None
 
         # Components -------------------------------------------------------
         with ui.row().classes('w-full h-screen flex-nowrap gap-0'):
@@ -73,6 +78,9 @@ class StratumApp:
 
         ui.dark_mode().enable(); ui.query('.nicegui-content').classes('p-0')
         self.filament_manager.build_dialog(self.filaments_panel.add_from_manager)
+
+        # Build project creation dialog
+        self._build_new_project_dialog()
 
         # Live preview controller (pulls state via lambdas)
         self.live = LivePreviewController(
@@ -127,20 +135,50 @@ class StratumApp:
         project = {
             'filaments': self.filaments_panel.get_filaments(),
             'settings': self.controls.get_settings(),
+            'is_multimaterial_mode': self.is_multimaterial_mode,
         }
+
+        # Add multimaterial-specific settings if in multimaterial mode
+        if self.is_multimaterial_mode:
+            project['multimaterial_settings'] = self.controls.get_multimaterial_settings()
+            project['base_color_index'] = self.filaments_panel.get_base_color_index()
+
         if self.original_image:
             buf = io.BytesIO(); self.original_image.save(buf, format='PNG')
             project['image'] = base64.b64encode(buf.getvalue()).decode()
         return project
 
     def _apply_project_data(self, project: dict):
+        # Apply multimaterial mode first
+        is_multimaterial = project.get('is_multimaterial_mode', False)
+        self.is_multimaterial_mode = is_multimaterial
+
+        # Update UI mode before setting filaments
+        self.filaments_panel.set_multimaterial_mode(is_multimaterial)
+        self.controls.set_multimaterial_mode(is_multimaterial)
+        self.live_preview_checkbox.visible = not is_multimaterial
+
+        # Apply filaments
         self.filaments_panel.set_filaments(project.get('filaments', []))
+
+        # Apply base color index if in multimaterial mode
+        if is_multimaterial and 'base_color_index' in project:
+            self.filaments_panel.base_color_index = project['base_color_index']
+
+        # Apply regular settings
         s = project.get('settings', {})
         self.controls.layer_input.value = s.get('layer_height', 0.2)
         self.controls.base_input.value = s.get('base_layers', 3)
         self.controls.size_input.value = s.get('max_size_cm', 10.0)
         self.controls.resolution_mode.value = s.get('resolution_mode', '◔')
         self.controls.detail_mode.value = s.get('detail_mode', '◔')
+
+        # Apply multimaterial settings if present
+        if is_multimaterial and 'multimaterial_settings' in project:
+            mm_settings = project['multimaterial_settings']
+            self.controls.dithering_checkbox.value = mm_settings.get('dithering', False)
+            self.controls.face_down_checkbox.value = mm_settings.get('face_down_printing', False)
+
         asyncio.create_task(self._maybe_live_preview())
 
     # ---------------------- Live preview hooks ----------------------------
@@ -274,9 +312,47 @@ class StratumApp:
             ui.download.content(buf.getvalue(), 'meshes.zip')
 
     # ---------------------- Utilities ------------------------------------
-    def new_project(self):
+    def _build_new_project_dialog(self):
+        with ui.dialog() as self._new_project_dialog:
+            with ui.card().classes('w-96'):
+                ui.markdown('#### New Project')
+                ui.markdown('Choose project mode:')
+
+                self._project_mode_toggle = ui.toggle(
+                    ['Normal', 'Multimaterial'],
+                    value='Normal'
+                ).classes('w-full')
+
+                with ui.column().classes('mt-4 gap-2'):
+                    ui.markdown('**Normal Mode:** Traditional layer-based printing with customizable filament order and layer counts.')
+                    ui.markdown('**Multimaterial Mode:** Advanced mode for multimaterial printers with base color selection and specialized export options.')
+
+                with ui.row().classes('justify-end gap-2 mt-4'):
+                    ui.button('Cancel', on_click=self._new_project_dialog.close)
+                    ui.button('Create', on_click=self._create_project_with_mode).props('color=primary')
+
+    def _create_project_with_mode(self):
+        is_multimaterial = self._project_mode_toggle.value == 'Multimaterial'
+        self.is_multimaterial_mode = is_multimaterial
+
+        # Reset project state
         self.filaments_panel.set_filaments([])
         self.original_image = None
         self.segmented_image = None
         self.polygons = None
         self.viewer.show_placeholder(True)
+
+        # Update UI based on mode
+        self.filaments_panel.set_multimaterial_mode(is_multimaterial)
+        self.controls.set_multimaterial_mode(is_multimaterial)
+
+        # Hide/show live preview checkbox based on mode
+        self.live_preview_checkbox.visible = not is_multimaterial
+
+        self._new_project_dialog.close()
+
+        mode_text = "Multimaterial" if is_multimaterial else "Normal"
+        ui.notify(f'New {mode_text} project created', color='green')
+
+    def new_project(self):
+        self._new_project_dialog.open()

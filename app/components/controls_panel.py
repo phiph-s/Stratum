@@ -7,6 +7,7 @@ class ControlsPanel:
         self.on_redraw = on_redraw
         self.on_export = on_export
         self.on_settings_change = on_settings_change or (lambda: None)
+        self.is_multimaterial_mode = False
 
         # state owned here
         self.layer_input = None
@@ -17,6 +18,11 @@ class ControlsPanel:
         self.progress_bar = None
         self.redraw_button = None
         self.export_button = None
+
+        # Multimaterial-specific controls
+        self.dithering_checkbox = None
+        self.face_down_checkbox = None
+        self.multimaterial_container = None
 
         self._build()
 
@@ -63,3 +69,28 @@ class ControlsPanel:
                 self.layer_input = ui.number(label='Layer height (mm)', value=0.12, format='%.2f', step=0.02, min=0.001, max=10, on_change=lambda _: self.on_settings_change()).classes('w-full')
                 self.base_input = ui.number(label='Base layers', value=3, format='%d', min=1, max=999).props('icon=layers').classes('w-full')
                 self.size_input = ui.number(label='Max size (cm)', value=10, format='%.1f', min=0.1, max=1000000).props('icon=straighten').classes('w-full')
+
+                # Multimaterial-specific options container
+                self.multimaterial_container = ui.column().classes('w-full')
+                with self.multimaterial_container:
+                    ui.separator().classes('my-2')
+                    ui.markdown('**Multimaterial Options**').classes('text-gray-400 mb-2')
+                    self.dithering_checkbox = ui.checkbox('Dithering', value=False).classes('text-gray-400').tooltip('Enable dithering for smoother color transitions')
+                    self.face_down_checkbox = ui.checkbox('Face down printing', value=False).classes('text-gray-400').tooltip('Optimize for face-down printing orientation')
+
+                # Initially hide multimaterial options
+                self.multimaterial_container.visible = False
+
+    def set_multimaterial_mode(self, is_multimaterial: bool):
+        """Set the multimaterial mode and show/hide relevant controls."""
+        self.is_multimaterial_mode = is_multimaterial
+        self.multimaterial_container.visible = is_multimaterial
+
+    def get_multimaterial_settings(self) -> dict:
+        """Get multimaterial-specific settings."""
+        if not self.is_multimaterial_mode:
+            return {}
+        return {
+            'dithering': self.dithering_checkbox.value,
+            'face_down_printing': self.face_down_checkbox.value,
+        }
